@@ -44,9 +44,13 @@ module Clacky
       say "Clacky version #{Clacky::VERSION}"
     end
 
-    desc "agent [MESSAGE]", "Run agent with autonomous tool use"
+    desc "agent [MESSAGE]", "Run agent in interactive mode with autonomous tool use"
     long_desc <<-LONGDESC
-      Run an AI agent that can autonomously use tools to complete tasks.
+      Run an AI agent in interactive mode that can autonomously use tools to complete tasks.
+
+      The agent runs in a continuous loop, allowing multiple tasks in one session.
+      Each task is completed with its own React (Reason-Act-Observe) cycle.
+      After completing a task, the agent waits for your next instruction.
 
       Permission modes:
         auto_approve    - Automatically execute all tools (use with caution)
@@ -55,9 +59,10 @@ module Clacky
         plan_only       - Generate plan without executing
 
       Examples:
-        $ clacky agent "Calculate the sum of numbers from 1 to 100"
-        $ clacky agent --mode=auto_approve "List all Ruby files"
-        $ clacky agent --tools calculator shell
+        $ clacky agent
+        $ clacky agent "Create a README file"
+        $ clacky agent --mode=auto_approve --path /path/to/project
+        $ clacky agent --tools file_reader glob grep
     LONGDESC
     option :mode, type: :string, default: "confirm_all",
            desc: "Permission mode: auto_approve, confirm_edits, confirm_all, plan_only"
@@ -65,6 +70,7 @@ module Clacky
     option :max_iterations, type: :numeric, default: 10, desc: "Maximum iterations"
     option :max_cost, type: :numeric, default: 1.0, desc: "Maximum cost in USD"
     option :verbose, type: :boolean, default: false, desc: "Show detailed output"
+    option :path, type: :string, desc: "Project directory path (defaults to current directory)"
     def agent(message = nil)
       config = Clacky::Config.load
 
@@ -73,35 +79,28 @@ module Clacky
         exit 1
       end
 
+      # Validate and get working directory
+      working_dir = validate_working_directory(options[:path])
+
       # Build agent config
       agent_config = build_agent_config(config)
       client = Clacky::Client.new(config.api_key, base_url: config.base_url)
       agent = Clacky::Agent.new(client, agent_config)
 
-      # Get user input
-      user_input = if message && !message.strip.empty?
-                     message
-                   else
-                     prompt_for_input
-                   end
+      # Change to working directory
+      original_dir = Dir.pwd
+      should_chdir = File.realpath(working_dir) != File.realpath(original_dir)
+      Dir.chdir(working_dir) if should_chdir
 
-      say "\n🤖 Starting agent...\n", :green
-      say "Mode: #{agent_config.permission_mode}", :yellow
-      say "Max iterations: #{agent_config.max_iterations}", :yellow
-      say "Max cost: $#{agent_config.max_cost_usd}", :yellow
-      say "\n"
-
-      # Run agent with event streaming
       begin
-        result = agent.run(user_input) do |event|
-          display_agent_event(event)
-        end
-
-        display_agent_result(result)
+        # Always run in interactive mode
+        run_agent_interactive(agent, working_dir, agent_config, message)
       rescue StandardError => e
         say "\n❌ Error: #{e.message}", :red
         say e.backtrace.first(5).join("\n"), :red if options[:verbose]
         exit 1
+      ensure
+        Dir.chdir(original_dir)
       end
     end
 
@@ -197,6 +196,94 @@ module Clacky
         say "Duration: #{result[:duration_seconds].round(2)}s", :yellow
         say "Total Cost: $#{result[:total_cost_usd]}", :yellow
         say "=" * 60, :cyan
+      end
+
+      def validate_working_directory(path)
+        working_dir = path || Dir.pwd
+
+        # Expand path to absolute path
+        working_dir = File.expand_path(working_dir)
+
+        # Validate directory exists
+        unless Dir.exist?(working_dir)
+          say "Error: Directory does not exist: #{working_dir}", :red
+          exit 1
+        end
+
+        # Validate it's a directory
+        unless File.directory?(working_dir)
+          say "Error: Path is not a directory: #{working_dir}", :red
+          exit 1
+        end
+
+        working_dir
+      end
+
+      def run_in_directory(directory)
+        original_dir = Dir.pwd
+
+        begin
+          Dir.chdir(directory)
+          yield
+        ensure
+          Dir.chdir(original_dir)
+        end
+      end
+
+      def run_agent_interactive(agent, working_dir, agent_config, initial_message = nil)
+        say "🤖 Starting interactive agent mode...", :green
+        say "Working directory: #{working_dir}", :cyan
+        say "Mode: #{agent_config.permission_mode}", :yellow
+        say "Max iterations: #{agent_config.max_iterations} per task", :yellow
+        say "Max cost: $#{agent_config.max_cost_usd} per task", :yellow
+        say "\nType 'exit' or 'quit' to end the session.\n", :yellow
+
+        prompt = TTY::Prompt.new
+        total_tasks = 0
+        total_cost = 0.0
+
+        # Process initial message if provided
+        current_message = initial_message
+
+        loop do
+          # Get message from user if not provided
+          unless current_message && !current_message.strip.empty?
+            say "\n" if total_tasks > 0
+            current_message = prompt.ask("You:", required: false)
+            break if current_message.nil? || %w[exit quit].include?(current_message&.downcase&.strip)
+            next if current_message.strip.empty?
+          end
+
+          total_tasks += 1
+          say "\n"
+
+          begin
+            result = agent.run(current_message) do |event|
+              display_agent_event(event)
+            end
+
+            total_cost += result[:total_cost_usd]
+
+            # Show brief task completion
+            say "\n" + ("-" * 60), :cyan
+            say "✓ Task completed", :green
+            say "  Iterations: #{result[:iterations]}", :white
+            say "  Cost: $#{result[:total_cost_usd].round(4)}", :white
+            say "  Session total: #{total_tasks} tasks, $#{total_cost.round(4)}", :yellow
+            say "-" * 60, :cyan
+          rescue StandardError => e
+            say "\n❌ Error: #{e.message}", :red
+            say e.backtrace.first(3).join("\n"), :white if options[:verbose]
+            say "\nYou can continue with a new task or type 'exit' to quit.", :yellow
+          end
+
+          # Clear current_message to prompt for next input
+          current_message = nil
+        end
+
+        say "\n👋 Agent session ended", :green
+        say "Total tasks completed: #{total_tasks}", :cyan
+        say "Total cost: $#{total_cost.round(4)}", :cyan
       end
     end
 

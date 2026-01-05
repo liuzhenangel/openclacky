@@ -13,7 +13,7 @@ RSpec.describe Clacky::Agent do
 
   describe "#initialize" do
     it "registers built-in tools on initialization" do
-      expect(agent.instance_variable_get(:@tool_registry).all.size).to eq(3)
+      expect(agent.instance_variable_get(:@tool_registry).all.size).to eq(9)
     end
 
     it "sets initial state" do

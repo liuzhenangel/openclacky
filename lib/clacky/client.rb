@@ -52,7 +52,8 @@ module Clacky
 
       # Debug output
       if verbose || ENV["CLACKY_DEBUG"]
-        puts "\n[DEBUG] Request to API:"
+        puts "\n[DEBUG] Current directory: #{Dir.pwd}"
+        puts "[DEBUG] Request to API:"
         puts JSON.pretty_generate(body)
       end
 
@@ -69,6 +70,8 @@ module Clacky
       @connection ||= Faraday.new(url: @base_url) do |conn|
         conn.headers["Content-Type"] = "application/json"
         conn.headers["Authorization"] = "Bearer #{@api_key}"
+        conn.options.timeout = 120  # Read timeout in seconds
+        conn.options.open_timeout = 10  # Connection timeout in seconds
         conn.adapter Faraday.default_adapter
       end
     end

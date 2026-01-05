@@ -5,11 +5,13 @@ A command-line interface for interacting with AI models. Clacky supports OpenAI-
 ## Features
 
 - 💬 Interactive chat sessions with AI models
+- 🤖 Autonomous AI agent with tool use capabilities
 - 🚀 Single-message mode for quick queries
 - 🔐 Secure API key management
 - 📝 Multi-turn conversation support
 - 🎨 Colorful terminal output
 - 🌐 OpenAI-compatible API support (OpenAI, Gitee AI, DeepSeek, etc.)
+- 🛠️ Rich built-in tools: file operations, web search, code execution, and more
 
 ## Installation
 
@@ -81,10 +83,81 @@ You can specify which model to use (overrides config):
 clacky chat --model=gpt-4 "Hello!"
 ```
 
+### AI Agent Mode (Interactive)
+
+Run an autonomous AI agent in interactive mode. The agent can use tools to complete tasks and runs in a continuous loop, allowing you to have multi-turn conversations with tool use capabilities.
+
+```bash
+# Start interactive agent (will prompt for tasks)
+clacky agent
+
+# Start with an initial task, then continue interactively
+clacky agent "Create a README.md file for my project"
+
+# Auto-approve all tool executions
+clacky agent --mode=auto_approve
+
+# Work in a specific project directory
+clacky agent --path /path/to/project
+
+# Limit tools available to the agent
+clacky agent --tools file_reader glob grep
+```
+
+The agent will:
+1. Complete each task using its React (Reason-Act-Observe) cycle
+2. Show you the results
+3. Wait for your next instruction
+4. Maintain conversation context across tasks
+5. Type 'exit' or 'quit' to end the session
+
+#### Permission Modes
+
+- `confirm_all` (default) - Confirm every tool use
+- `confirm_edits` - Auto-approve read-only tools, confirm edits
+- `auto_approve` - Automatically execute all tools (use with caution)
+- `plan_only` - Generate plan without executing
+
+#### Agent Options
+
+```bash
+--path PATH              # Project directory (defaults to current directory)
+--mode MODE              # Permission mode
+--tools TOOL1 TOOL2      # Allowed tools (or "all")
+--max-iterations N       # Maximum iterations (default: 10)
+--max-cost N             # Maximum cost in USD (default: 1.0)
+--verbose                # Show detailed output
+```
+
+### List Available Tools
+
+View all built-in tools:
+
+```bash
+clacky tools
+
+# Filter by category
+clacky tools --category file_system
+```
+
+#### Built-in Tools
+
+- **file_reader** - Read file contents
+- **write** - Create or overwrite files
+- **edit** - Make precise edits to existing files
+- **glob** - Find files by pattern matching
+- **grep** - Search file contents with regex
+- **shell** - Execute shell commands
+- **calculator** - Perform mathematical calculations
+- **web_search** - Search the web for information
+- **web_fetch** - Fetch and parse web page content
+
 ### Available Commands
 
 ```bash
 clacky chat [MESSAGE]     # Start a chat or send a single message
+clacky agent [MESSAGE]    # Run autonomous agent with tool use
+clacky tools              # List available tools
 clacky config set         # Set your API key
 clacky config show        # Show current configuration
 clacky version            # Show clacky version
@@ -92,6 +165,8 @@ clacky help               # Show help information
 ```
 
 ## Examples
+
+### Chat Examples
 
 ```bash
 # Quick question
@@ -102,6 +177,36 @@ clacky chat
 
 # Check version
 clacky version
+```
+
+### Agent Examples
+
+```bash
+# Start interactive agent session
+clacky agent
+# Then type tasks interactively:
+# > Create a TODO.md file with 3 example tasks
+# > Now add more items to the TODO list
+# > exit
+
+# Start with initial task, then continue
+clacky agent "Add a .gitignore file for Ruby projects"
+# After completing, agent waits for next task
+# > List all Ruby files
+# > Count lines in each file
+# > exit
+
+# Auto-approve mode for trusted operations
+clacky agent --mode=auto_approve --path ~/my-project
+# > Count all lines of code
+# > Create a summary report
+# > exit
+
+# Use specific tools only in interactive mode
+clacky agent --tools file_reader glob grep
+# > Find all TODO comments
+# > Search for FIXME comments
+# > exit
 ```
 
 ## Development
