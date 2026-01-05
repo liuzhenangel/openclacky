@@ -15,11 +15,16 @@ module Clacky
           action: {
             type: "string",
             enum: ["add", "list", "complete", "remove", "clear"],
-            description: "Action to perform: 'add' (add new todo), 'list' (show all todos), 'complete' (mark as done), 'remove' (delete todo), 'clear' (remove all todos)"
+            description: "Action to perform: 'add' (add new todo(s)), 'list' (show all todos), 'complete' (mark as done), 'remove' (delete todo), 'clear' (remove all todos)"
+          },
+          tasks: {
+            type: "array",
+            items: { type: "string" },
+            description: "Array of task descriptions to add (for 'add' action). Example: ['Task 1', 'Task 2', 'Task 3']"
           },
           task: {
             type: "string",
-            description: "The task description (required for 'add' action)"
+            description: "Single task description (for 'add' action). Use 'tasks' array for adding multiple tasks at once."
           },
           id: {
             type: "integer",
@@ -33,13 +38,13 @@ module Clacky
         required: ["action"]
       }
 
-      def execute(action:, task: nil, id: nil, work_dir: nil)
+      def execute(action:, task: nil, tasks: nil, id: nil, work_dir: nil)
         @work_dir = work_dir || Dir.pwd
         @todo_file = File.join(@work_dir, ".clacky_todos.json")
 
         case action
         when "add"
-          add_todo(task)
+          add_todos(task: task, tasks: tasks)
         when "list"
           list_todos
         when "complete"
@@ -67,27 +72,40 @@ module Clacky
         File.write(@todo_file, JSON.pretty_generate(todos))
       end
 
-      def add_todo(task)
-        return { error: "Task description is required" } if task.nil? || task.strip.empty?
+      def add_todos(task: nil, tasks: nil)
+        # Determine which tasks to add
+        tasks_to_add = []
 
-        todos = load_todos
-        new_id = todos.empty? ? 1 : todos.map { |t| t[:id] }.max + 1
+        if tasks && tasks.is_a?(Array) && !tasks.empty?
+          tasks_to_add = tasks.map(&:strip).reject(&:empty?)
+        elsif task && !task.strip.empty?
+          tasks_to_add = [task.strip]
+        end
 
-        new_todo = {
-          id: new_id,
-          task: task,
-          status: "pending",
-          created_at: Time.now.iso8601
-        }
+        return { error: "At least one task description is required" } if tasks_to_add.empty?
 
-        todos << new_todo
-        save_todos(todos)
+        existing_todos = load_todos
+        next_id = existing_todos.empty? ? 1 : existing_todos.map { |t| t[:id] }.max + 1
+
+        added_todos = []
+        tasks_to_add.each_with_index do |task_desc, index|
+          new_todo = {
+            id: next_id + index,
+            task: task_desc,
+            status: "pending",
+            created_at: Time.now.iso8601
+          }
+          existing_todos << new_todo
+          added_todos << new_todo
+        end
+
+        save_todos(existing_todos)
 
         {
-          message: "TODO added successfully",
-          todo: new_todo,
-          total: todos.size,
-          reminder: "⚠️ IMPORTANT: You have added a TODO but have NOT started working yet! You MUST now use other tools (write, edit, shell, etc.) to actually complete this task. DO NOT stop here!"
+          message: added_todos.size == 1 ? "TODO added successfully" : "#{added_todos.size} TODOs added successfully",
+          todos: added_todos,
+          total: existing_todos.size,
+          reminder: "⚠️ IMPORTANT: You have added TODO(s) but have NOT started working yet! You MUST now use other tools (write, edit, shell, etc.) to actually complete these tasks. DO NOT stop here!"
         }
       end
 

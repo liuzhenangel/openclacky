@@ -18,30 +18,75 @@ RSpec.describe Clacky::Tools::TodoManager do
         result = tool.execute(action: "add", task: "Write tests", work_dir: temp_dir)
 
         expect(result[:message]).to eq("TODO added successfully")
-        expect(result[:todo][:id]).to eq(1)
-        expect(result[:todo][:task]).to eq("Write tests")
-        expect(result[:todo][:status]).to eq("pending")
+        expect(result[:todos].size).to eq(1)
+        expect(result[:todos][0][:id]).to eq(1)
+        expect(result[:todos][0][:task]).to eq("Write tests")
+        expect(result[:todos][0][:status]).to eq("pending")
         expect(result[:total]).to eq(1)
       end
 
-      it "increments todo IDs" do
-        tool.execute(action: "add", task: "First task", work_dir: temp_dir)
-        result = tool.execute(action: "add", task: "Second task", work_dir: temp_dir)
+      it "adds multiple todos at once with tasks array" do
+        result = tool.execute(
+          action: "add",
+          tasks: ["Task 1", "Task 2", "Task 3"],
+          work_dir: temp_dir
+        )
 
-        expect(result[:todo][:id]).to eq(2)
-        expect(result[:total]).to eq(2)
+        expect(result[:message]).to eq("3 TODOs added successfully")
+        expect(result[:todos].size).to eq(3)
+        expect(result[:todos][0][:id]).to eq(1)
+        expect(result[:todos][1][:id]).to eq(2)
+        expect(result[:todos][2][:id]).to eq(3)
+        expect(result[:total]).to eq(3)
+      end
+
+      it "increments todo IDs correctly when adding multiple" do
+        tool.execute(action: "add", task: "First task", work_dir: temp_dir)
+        result = tool.execute(
+          action: "add",
+          tasks: ["Second task", "Third task"],
+          work_dir: temp_dir
+        )
+
+        expect(result[:todos][0][:id]).to eq(2)
+        expect(result[:todos][1][:id]).to eq(3)
+        expect(result[:total]).to eq(3)
+      end
+
+      it "prefers tasks array over task when both provided" do
+        result = tool.execute(
+          action: "add",
+          task: "Single task",
+          tasks: ["Batch 1", "Batch 2"],
+          work_dir: temp_dir
+        )
+
+        expect(result[:todos].size).to eq(2)
+        expect(result[:todos][0][:task]).to eq("Batch 1")
       end
 
       it "returns error when task is empty" do
         result = tool.execute(action: "add", task: "", work_dir: temp_dir)
 
-        expect(result[:error]).to eq("Task description is required")
+        expect(result[:error]).to eq("At least one task description is required")
       end
 
-      it "returns error when task is nil" do
+      it "returns error when task is nil and tasks is empty" do
         result = tool.execute(action: "add", work_dir: temp_dir)
 
-        expect(result[:error]).to eq("Task description is required")
+        expect(result[:error]).to eq("At least one task description is required")
+      end
+
+      it "filters out empty tasks from array" do
+        result = tool.execute(
+          action: "add",
+          tasks: ["Task 1", "", "  ", "Task 2"],
+          work_dir: temp_dir
+        )
+
+        expect(result[:todos].size).to eq(2)
+        expect(result[:todos][0][:task]).to eq("Task 1")
+        expect(result[:todos][1][:task]).to eq("Task 2")
       end
     end
 
