@@ -64,7 +64,7 @@ module Clacky
         $ clacky agent --mode=auto_approve --path /path/to/project
         $ clacky agent --tools file_reader glob grep
     LONGDESC
-    option :mode, type: :string, default: "confirm_all",
+    option :mode, type: :string, default: "confirm_edits",
            desc: "Permission mode: auto_approve, confirm_edits, confirm_all, plan_only"
     option :tools, type: :array, default: ["all"], desc: "Allowed tools"
     option :max_iterations, type: :numeric, desc: "Maximum iterations (default: 50)"

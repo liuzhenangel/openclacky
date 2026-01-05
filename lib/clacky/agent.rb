@@ -339,8 +339,11 @@ module Clacky
     def confirm_tool_use?(call, &block)
       emit_event(:tool_confirmation_required, call, &block)
 
-      print "\n❓ Allow #{call[:name]}? "
-      print "\n   Args: #{call[:arguments]}"
+      puts "\n❓ Allow #{call[:name]}?"
+
+      # Show preview for editing tools
+      show_tool_preview(call)
+
       print "\n   (y/n): "
 
       response = $stdin.gets
@@ -348,6 +351,75 @@ module Clacky
 
       response = response.chomp.downcase
       response == "y" || response == "yes"
+    end
+
+    def show_tool_preview(call)
+      begin
+        args = JSON.parse(call[:arguments], symbolize_names: true)
+
+        case call[:name]
+        when "write"
+          show_write_preview(args)
+        when "edit"
+          show_edit_preview(args)
+        when "shell"
+          show_shell_preview(args)
+        else
+          puts "   Args: #{call[:arguments]}"
+        end
+      rescue JSON::ParserError
+        puts "   Args: #{call[:arguments]}"
+      end
+    end
+
+    def show_write_preview(args)
+      path = args[:path]
+      new_content = args[:content] || ""
+
+      puts "   File: #{path}"
+
+      if File.exist?(path)
+        old_content = File.read(path)
+        puts "   📝 Modifying existing file"
+        show_diff(old_content, new_content)
+      else
+        puts "   📝 Creating new file"
+        puts "   Content preview (first 10 lines):"
+        preview_lines = new_content.lines.first(10)
+        preview_lines.each { |line| puts "   > #{line.chomp}" }
+        puts "   ... (#{new_content.lines.size} lines total)" if new_content.lines.size > 10
+      end
+    end
+
+    def show_edit_preview(args)
+      path = args[:file_path]
+      old_string = args[:old_string] || ""
+      new_string = args[:new_string] || ""
+
+      puts "   File: #{path}"
+      puts "   📝 Replacing text:"
+      puts "   - Old: #{old_string[0..100]}#{'...' if old_string.length > 100}"
+      puts "   + New: #{new_string[0..100]}#{'...' if new_string.length > 100}"
+    end
+
+    def show_shell_preview(args)
+      command = args[:command] || ""
+      puts "   💻 Command: #{command}"
+    end
+
+    def show_diff(old_content, new_content)
+      require 'diffy'
+
+      diff = Diffy::Diff.new(old_content, new_content, context: 3)
+      diff_lines = diff.to_s(:color).lines.first(20)
+
+      puts "   Diff preview:"
+      diff_lines.each { |line| puts "   #{line.chomp}" }
+      puts "   ... (diff truncated)" if diff.to_s.lines.size > 20
+    rescue LoadError
+      # Fallback if diffy is not available
+      puts "   Old size: #{old_content.bytesize} bytes"
+      puts "   New size: #{new_content.bytesize} bytes"
     end
 
     def build_success_result(call, result)
