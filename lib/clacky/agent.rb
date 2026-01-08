@@ -410,6 +410,13 @@ module Clacky
 
       while i >= 0 && recent.size < count
         msg = messages[i]
+
+        # Skip if already added
+        if recent.include?(msg)
+          i -= 1
+          next
+        end
+
         recent.unshift(msg)
 
         # If this is a tool result, make sure we include the corresponding assistant message with tool_calls
