@@ -681,6 +681,7 @@ module Clacky
       @tool_registry.register(Tools::WebSearch.new)
       @tool_registry.register(Tools::WebFetch.new)
       @tool_registry.register(Tools::TodoManager.new)
+      @tool_registry.register(Tools::RunProject.new)
     end
   end
 end

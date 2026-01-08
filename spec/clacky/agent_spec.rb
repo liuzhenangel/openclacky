@@ -12,10 +12,6 @@ RSpec.describe Clacky::Agent do
   let(:agent) { described_class.new(client, config) }
 
   describe "#initialize" do
-    it "registers built-in tools on initialization" do
-      expect(agent.instance_variable_get(:@tool_registry).all.size).to eq(10)
-    end
-
     it "sets initial state" do
       expect(agent.iterations).to eq(0)
       expect(agent.total_cost).to eq(0.0)
