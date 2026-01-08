@@ -64,7 +64,7 @@ module Clacky
 
       def format_call(args)
         path = args[:path] || args['path']
-        "Read(#{File.basename(path)})"
+        "Read(#{Utils::PathHelper.safe_basename(path)})"
       end
 
       def format_result(result)

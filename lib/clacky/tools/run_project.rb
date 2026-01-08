@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "base"
+require_relative "../utils/limit_stack"
 require "yaml"
 require "open3"
-require "stringio"
 
 module Clacky
   module Tools
@@ -121,8 +121,8 @@ module Clacky
             thread: wait_thr,
             start_time: Time.now,
             command: command,
-            stdout_buffer: StringIO.new,
-            stderr_buffer: StringIO.new
+            stdout_buffer: Utils::LimitStack.new(max_size: 5000),
+            stderr_buffer: Utils::LimitStack.new(max_size: 5000)
           }
 
           start_output_reader_thread
@@ -256,9 +256,9 @@ module Clacky
                   begin
                     data = io.read_nonblock(4096)
                     if io == stdout
-                      stdout_buf.write(data)
+                      stdout_buf.push_lines(data)
                     else
-                      stderr_buf.write(data)
+                      stderr_buf.push_lines(data)
                     end
                   rescue IO::WaitReadable, EOFError
                   end
@@ -275,9 +275,10 @@ module Clacky
       def read_buffered_output(max_lines:)
         return "" unless @@process_state
 
-        stdout_lines = @@process_state[:stdout_buffer].string.lines
-        stderr_lines = @@process_state[:stderr_buffer].string.lines
+        stdout_lines = @@process_state[:stdout_buffer].to_a
+        stderr_lines = @@process_state[:stderr_buffer].to_a
 
+        # Combine and get last N lines
         all_lines = (stdout_lines + stderr_lines).last(max_lines)
         all_lines.join
       end

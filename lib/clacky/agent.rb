@@ -561,12 +561,12 @@ module Clacky
     end
 
     def show_write_preview(args)
-      path = args[:path]
-      new_content = args[:content] || ""
+      path = args[:path] || args['path']
+      new_content = args[:content] || args['content'] || ""
 
-      puts "\n📝 File: #{path}"
+      puts "\n📝 File: #{path || '(unknown)'}"
 
-      if File.exist?(path)
+      if path && File.exist?(path)
         old_content = File.read(path)
         puts "Modifying existing file\n"
         show_diff(old_content, new_content, max_lines: 50)
@@ -580,13 +580,13 @@ module Clacky
     end
 
     def show_edit_preview(args)
-      path = args[:file_path]
-      old_string = args[:old_string] || ""
-      new_string = args[:new_string] || ""
+      path = args[:path] || args[:file_path] || args['path'] || args['file_path']
+      old_string = args[:old_string] || args['old_string'] || ""
+      new_string = args[:new_string] || args['new_string'] || ""
 
-      puts "\n📝 File: #{path}"
+      puts "\n📝 File: #{path || '(unknown)'}"
 
-      if File.exist?(path)
+      if path && File.exist?(path)
         file_content = File.read(path)
         new_content = file_content.sub(old_string, new_string)
         show_diff(file_content, new_content, max_lines: 50)
