@@ -11,6 +11,24 @@ module Clacky
       self.tool_name = "safe_shell"
       self.tool_description = "Execute shell commands with enhanced security - dangerous commands are automatically made safe"
       self.tool_category = "system"
+      self.tool_parameters = {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "Shell command to execute"
+          },
+          soft_timeout: {
+            type: "integer",
+            description: "Soft timeout in seconds (for interaction detection)"
+          },
+          hard_timeout: {
+            type: "integer",
+            description: "Hard timeout in seconds (force kill)"
+          }
+        },
+        required: ["command"]
+      }
 
       def execute(command:, soft_timeout: nil, hard_timeout: nil)
         # Get project root directory
@@ -40,32 +58,22 @@ module Clacky
         end
       end
 
-      def to_function_definition
-        {
-          type: "function",
-          function: {
-            name: name,
-            description: "Execute shell commands with enhanced security - dangerous commands are automatically made safe",
-            parameters: {
-              type: "object",
-              properties: {
-                command: {
-                  type: "string",
-                  description: "Shell command to execute"
-                },
-                soft_timeout: {
-                  type: "integer", 
-                  description: "Soft timeout in seconds (for interaction detection)"
-                },
-                hard_timeout: {
-                  type: "integer",
-                  description: "Hard timeout in seconds (force kill)"
-                }
-              },
-              required: ["command"]
-            }
-          }
-        }
+      # Class method to check if a command is safe to execute automatically
+      def self.command_safe_for_auto_execution?(command)
+        return false unless command
+        
+        begin
+          project_root = Dir.pwd
+          safety_replacer = CommandSafetyReplacer.new(project_root)
+          safe_command = safety_replacer.make_command_safe(command)
+          
+          # If the command wasn't changed by the safety replacer, it's considered safe
+          # This means it doesn't need any modifications to be secure
+          command.strip == safe_command.strip
+        rescue SecurityError
+          # If SecurityError is raised, the command is definitely not safe
+          false
+        end
       end
 
       private

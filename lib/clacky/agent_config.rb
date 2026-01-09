@@ -2,7 +2,7 @@
 
 module Clacky
   class AgentConfig
-    PERMISSION_MODES = [:auto_approve, :confirm_edits, :confirm_all, :plan_only].freeze
+    PERMISSION_MODES = [:auto_approve, :confirm_safes, :confirm_edits, :plan_only].freeze
     EDITING_TOOLS = %w[shell write edit].freeze
 
     attr_accessor :model, :max_iterations, :max_cost_usd, :timeout_seconds,
@@ -23,23 +23,7 @@ module Clacky
       @keep_recent_messages = options[:keep_recent_messages] || 20
     end
 
-    def should_auto_execute?(tool_name)
-      # Check if tool is disallowed
-      return false if @disallowed_tools.include?(tool_name)
 
-      case @permission_mode
-      when :auto_approve
-        true
-      when :confirm_edits
-        !editing_tool?(tool_name)
-      when :confirm_all
-        false
-      when :plan_only
-        false
-      else
-        false
-      end
-    end
 
     def is_plan_only?
       @permission_mode == :plan_only
@@ -48,7 +32,7 @@ module Clacky
     private
 
     def validate_permission_mode(mode)
-      mode ||= :confirm_all
+      mode ||= :confirm_safes
       mode = mode.to_sym
 
       unless PERMISSION_MODES.include?(mode)
@@ -58,8 +42,6 @@ module Clacky
       mode
     end
 
-    def editing_tool?(tool_name)
-      EDITING_TOOLS.include?(tool_name.to_s.downcase)
-    end
+
   end
 end

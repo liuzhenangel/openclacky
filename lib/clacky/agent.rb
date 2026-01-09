@@ -213,6 +213,53 @@ module Clacky
 
     private
 
+    def should_auto_execute?(tool_name, tool_params = {})
+      # Check if tool is disallowed
+      return false if @config.disallowed_tools.include?(tool_name)
+
+      case @config.permission_mode
+      when :auto_approve
+        true
+      when :confirm_safes
+        # Use SafeShell integration for safety check
+        is_safe_operation?(tool_name, tool_params)
+      when :confirm_edits
+        !editing_tool?(tool_name)
+      when :plan_only
+        false
+      else
+        false
+      end
+    end
+
+    def editing_tool?(tool_name)
+      AgentConfig::EDITING_TOOLS.include?(tool_name.to_s.downcase)
+    end
+
+    def is_safe_operation?(tool_name, tool_params = {})
+      # For shell commands, use SafeShell to check safety
+      if tool_name.to_s.downcase == 'shell' || tool_name.to_s.downcase == 'safe_shell'
+        begin
+          require_relative 'tools/safe_shell'
+          command = tool_params[:command] || tool_params['command']
+          return false unless command
+
+          # Use SafeShell to analyze the command
+          return Tools::SafeShell.command_safe_for_auto_execution?(command)
+        rescue LoadError
+          # If SafeShell not available, be conservative
+          return false
+        rescue => e
+          # In case of any error, be conservative
+          return false
+        end
+      end
+
+      # For non-shell tools, consider them safe for now
+      # You can extend this logic for other tools
+      !editing_tool?(tool_name)
+    end
+
     def build_system_prompt
       prompt = SYSTEM_PROMPT.dup
 
@@ -291,7 +338,7 @@ module Clacky
         end
 
         # Permission check (if not in auto-approve mode)
-        unless @config.should_auto_execute?(call[:name])
+        unless should_auto_execute?(call[:name], call[:arguments])
           if @config.is_plan_only?
             emit_event(:tool_planned, call, &block)
             next build_planned_result(call)

@@ -55,8 +55,8 @@ module Clacky
 
       Permission modes:
         auto_approve    - Automatically execute all tools (use with caution)
+        confirm_safes   - Auto-approve safe operations, confirm risky ones (default)
         confirm_edits   - Auto-approve read-only tools, confirm edits
-        confirm_all     - Confirm every tool use (default)
         plan_only       - Generate plan without executing
 
       Session management:
@@ -73,8 +73,8 @@ module Clacky
         $ clacky agent -l
         $ clacky agent -a 2
     LONGDESC
-    option :mode, type: :string, default: "confirm_edits",
-           desc: "Permission mode: auto_approve, confirm_edits, confirm_all, plan_only"
+    option :mode, type: :string, default: "confirm_safes",
+           desc: "Permission mode: auto_approve, confirm_safes, confirm_edits, plan_only"
     option :tools, type: :array, default: ["all"], desc: "Allowed tools"
     option :max_iterations, type: :numeric, desc: "Maximum iterations (default: 50)"
     option :max_cost, type: :numeric, desc: "Maximum cost in USD (default: 5.0)"

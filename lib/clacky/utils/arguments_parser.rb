@@ -47,7 +47,7 @@ module Clacky
       # Validate required parameters
       def self.validate_required_params(call, args, tool_registry)
         tool = tool_registry.get(call[:name])
-        required = tool.parameters.dig(:required) || []
+        required = tool.parameters&.dig(:required) || []
 
         missing = required.reject { |param|
           args.key?(param.to_sym) || args.key?(param.to_s)
@@ -69,7 +69,7 @@ module Clacky
 
       def self.build_error_message(call, tool, original_error)
         # Extract tool information
-        required_params = tool.parameters.dig(:required) || []
+        required_params = tool.parameters&.dig(:required) || []
 
         # Try to parse provided parameters from incomplete JSON
         provided_params = extract_provided_params(call[:arguments])
