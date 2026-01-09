@@ -197,8 +197,18 @@ module Clacky
       end
 
       def replace_chmod_command(command)
-        log_blocked_operation("chmod +x", "Setting executable permissions blocked for security")
-        "echo '🔒 chmod +x operation blocked for security - file permissions unchanged'"
+        # Parse chmod command to ensure it's safe
+        parts = Shellwords.split(command)
+        
+        # Only allow chmod +x on files in project directory
+        files = parts[2..-1] || []
+        files.each { |file| validate_file_path(file) unless file.start_with?('-') }
+        
+        # Allow chmod +x as it's generally safe
+        log_replacement("chmod", command, "chmod +x is allowed - file permissions will be modified")
+        command
+      rescue Shellwords::BadQuotedString
+        raise SecurityError, "Invalid chmod command syntax: #{command}"
       end
 
       def replace_curl_pipe_command(command)
