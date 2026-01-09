@@ -436,7 +436,6 @@ module Clacky
             if session_manager
               session_manager.save(agent.to_session_data)
               say "\n\n⚠️  Task interrupted by user (Ctrl+C)", :yellow
-              say "📂 Session saved: #{session_manager.last_saved_path}", :yellow
               say "You can start a new task or type 'exit' to quit.\n", :yellow
             end
           rescue StandardError => e
