@@ -682,11 +682,9 @@ module Clacky
         puts "Modifying existing file\n"
         show_diff(old_content, new_content, max_lines: 50)
       else
-        puts "Creating new file"
-        puts "Content preview (first 20 lines):"
-        preview_lines = new_content.lines.first(20)
-        preview_lines.each { |line| puts "   > #{line.chomp}" }
-        puts "   ... (#{new_content.lines.size} lines total)" if new_content.lines.size > 20
+        puts "Creating new file\n"
+        # Show diff from empty content to new content (all additions)
+        show_diff("", new_content, max_lines: 50)
       end
     end
 
