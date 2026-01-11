@@ -33,18 +33,18 @@ module Clacky
       def execute(command:, soft_timeout: nil, hard_timeout: nil)
         # Get project root directory
         project_root = Dir.pwd
-        
+
         begin
           # 1. Use safety replacer to process command
           safety_replacer = CommandSafetyReplacer.new(project_root)
           safe_command = safety_replacer.make_command_safe(command)
-          
+
           # 2. Call parent class execution method
           result = super(command: safe_command, soft_timeout: soft_timeout, hard_timeout: hard_timeout)
-          
+
           # 3. Enhance result information
           enhance_result(result, command, safe_command)
-          
+
         rescue SecurityError => e
           # Security error, return friendly error message
           {
@@ -72,16 +72,16 @@ module Clacky
       # Class method to check if a command is safe to execute automatically
       def self.command_safe_for_auto_execution?(command)
         return false unless command
-        
+
         # Check if it's a known safe read-only command
         cmd_name = command.strip.split.first
         return true if SAFE_READONLY_COMMANDS.include?(cmd_name)
-        
+
         begin
           project_root = Dir.pwd
           safety_replacer = CommandSafetyReplacer.new(project_root)
           safe_command = safety_replacer.make_command_safe(command)
-          
+
           # If the command wasn't changed by the safety replacer, it's considered safe
           # This means it doesn't need any modifications to be secure
           command.strip == safe_command.strip
@@ -99,19 +99,19 @@ module Clacky
           result[:security_enhanced] = true
           result[:original_command] = original_command
           result[:safe_command] = safe_command
-          
+
           # Add security note to stdout
           security_note = "🔒 Command was automatically made safe\n"
           result[:stdout] = security_note + (result[:stdout] || "")
         end
-        
+
         result
       end
 
       def format_call(args)
         cmd = args[:command] || args['command'] || ''
         return "safe_shell(<no command>)" if cmd.empty?
-        
+
         # Truncate long commands intelligently
         if cmd.length > 50
           "safe_shell(\"#{cmd[0..47]}...\")"
@@ -124,7 +124,7 @@ module Clacky
         exit_code = result[:exit_code] || result['exit_code'] || 0
         stdout = result[:stdout] || result['stdout'] || ""
         stderr = result[:stderr] || result['stderr'] || ""
-        
+
         if result[:security_blocked]
           "🔒 Blocked for security"
         elsif result[:security_enhanced]
@@ -150,7 +150,7 @@ module Clacky
 
       def make_command_safe(command)
         command = command.strip
-        
+
         case command
         when /^rm\s+/
           replace_rm_command(command)
@@ -169,28 +169,26 @@ module Clacky
         end
       end
 
-      private
-
       def replace_rm_command(command)
         files = parse_rm_files(command)
-        
+
         if files.empty?
           raise SecurityError, "No files specified for deletion"
         end
-        
+
         commands = files.map do |file|
           validate_file_path(file)
-          
+
           timestamp = Time.now.strftime("%Y%m%d_%H%M%S_%N")
           safe_name = "#{File.basename(file)}_deleted_#{timestamp}"
           trash_path = File.join(@trash_dir, safe_name)
-          
+
           # Create deletion metadata
           create_delete_metadata(file, trash_path) if File.exist?(file)
-          
+
           "mv #{Shellwords.escape(file)} #{Shellwords.escape(trash_path)}"
         end
-        
+
         result = commands.join(' && ')
         log_replacement("rm", result, "Files moved to trash instead of permanent deletion")
         result
@@ -199,11 +197,11 @@ module Clacky
       def replace_chmod_command(command)
         # Parse chmod command to ensure it's safe
         parts = Shellwords.split(command)
-        
+
         # Only allow chmod +x on files in project directory
         files = parts[2..-1] || []
         files.each { |file| validate_file_path(file) unless file.start_with?('-') }
-        
+
         # Allow chmod +x as it's generally safe
         log_replacement("chmod", command, "chmod +x is allowed - file permissions will be modified")
         command
@@ -217,7 +215,7 @@ module Clacky
           shell_type = $2
           timestamp = Time.now.strftime("%Y%m%d_%H%M%S")
           safe_file = File.join(@backup_dir, "downloaded_script_#{timestamp}.sh")
-          
+
           result = "curl #{url} -o #{Shellwords.escape(safe_file)} && echo '🔒 Script downloaded to #{safe_file} for manual review. Run: cat #{safe_file}'"
           log_replacement("curl | #{shell_type}", result, "Script saved for manual review instead of automatic execution")
           result
@@ -240,7 +238,7 @@ module Clacky
         parts = Shellwords.split(command)
         cmd = parts.first
         args = parts[1..-1]
-        
+
         case cmd
         when 'mv', 'cp'
           # Ensure target paths are within project
@@ -249,7 +247,7 @@ module Clacky
           # Check directory creation permissions
           args.each { |path| validate_directory_creation(path) unless path.start_with?('-') }
         end
-        
+
         command
       rescue Shellwords::BadQuotedString
         raise SecurityError, "Invalid command syntax: #{command}"
@@ -289,14 +287,14 @@ module Clacky
 
       def validate_file_path(path)
         return if path.start_with?('-')  # Skip option parameters
-        
+
         expanded_path = File.expand_path(path)
-        
+
         # Ensure file is within project directory
         unless expanded_path.start_with?(@project_root)
           raise SecurityError, "File access outside project directory blocked: #{path}"
         end
-        
+
         # Protect important files
         protected_patterns = [
           /Gemfile$/,
@@ -310,7 +308,7 @@ module Clacky
           /\.ssh\//,
           /\.aws\//
         ]
-        
+
         protected_patterns.each do |pattern|
           if expanded_path.match?(pattern)
             raise SecurityError, "Access to protected file blocked: #{File.basename(path)}"
@@ -320,7 +318,7 @@ module Clacky
 
       def validate_directory_creation(path)
         expanded_path = File.expand_path(path)
-        
+
         unless expanded_path.start_with?(@project_root)
           raise SecurityError, "Directory creation outside project blocked: #{path}"
         end
@@ -335,7 +333,7 @@ module Clacky
           file_type: File.extname(original_path),
           file_mode: File.stat(original_path).mode.to_s(8)
         }
-        
+
         metadata_file = "#{trash_path}.metadata.json"
         File.write(metadata_file, JSON.pretty_generate(metadata))
       rescue StandardError => e
@@ -346,7 +344,7 @@ module Clacky
       def setup_safety_dirs
         [@trash_dir, @backup_dir].each do |dir|
           FileUtils.mkdir_p(dir) unless Dir.exist?(dir)
-          
+
           # Create .gitignore file to avoid trash files being committed
           gitignore_path = File.join(dir, '.gitignore')
           unless File.exist?(gitignore_path)
@@ -363,7 +361,7 @@ module Clacky
           safe_replacement: replacement,
           reason: reason
         }
-        
+
         write_log(log_entry)
       end
 
@@ -374,7 +372,7 @@ module Clacky
           blocked_operation: operation,
           reason: reason
         }
-        
+
         write_log(log_entry)
       end
 
@@ -384,7 +382,7 @@ module Clacky
           action: 'warning',
           message: message
         }
-        
+
         write_log(log_entry)
       end
 

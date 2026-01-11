@@ -834,7 +834,7 @@ module Clacky
     def build_success_result(call, result)
       {
         id: call[:id],
-        content: result.to_json
+        content: JSON.generate(result)
       }
     end
 
