@@ -215,7 +215,7 @@ module Clacky
         when :answer
           say "\n⏺ #{event[:data][:content]}", :white if event[:data][:content] && !event[:data][:content].empty?
         when :tool_denied
-          say "\n⏺ Tool denied: #{event[:data][:name]}", :red
+          say "\n⏺ Tool denied: #{event[:data][:name]}\n\n", :yellow
         when :tool_planned
           say "\n⏺ Planned: #{event[:data][:name]}", :blue
         when :tool_error
