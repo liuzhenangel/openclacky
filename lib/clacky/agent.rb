@@ -218,14 +218,14 @@ module Clacky
     # @param status [Symbol] Status of the last task: :success, :error, or :interrupted
     # @param error_message [String] Error message if status is :error
     def to_session_data(status: :success, error_message: nil)
-      # Get first real user message for preview (skip compressed system messages)
-      first_user_msg = @messages.find do |m|
+      # Get last real user message for preview (skip compressed system messages)
+      last_user_msg = @messages.reverse.find do |m|
         m[:role] == "user" && !m[:content].to_s.start_with?("[SYSTEM]")
       end
 
-      # Extract preview text from first user message
-      first_message_preview = if first_user_msg
-        content = first_user_msg[:content]
+      # Extract preview text from last user message
+      last_message_preview = if last_user_msg
+        content = last_user_msg[:content]
         if content.is_a?(String)
           # Truncate to 100 characters for preview
           content.length > 100 ? "#{content[0..100]}..." : content
@@ -267,7 +267,7 @@ module Clacky
         },
         stats: stats_data,
         messages: @messages,
-        first_user_message: first_message_preview
+        first_user_message: last_message_preview
       }
     end
 
