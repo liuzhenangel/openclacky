@@ -30,11 +30,12 @@ module Clacky
 
       # Read user input with enhanced features
       # @param prefix [String] Prompt prefix (default: "❯")
+      # @param block [Proc] Optional callback when Shift+Tab is pressed (receives display_lines)
       # @return [Hash, nil] Returns:
       #   - { text: String, images: Array } for normal input
       #   - { command: Symbol } for commands (:clear, :exit)
       #   - nil on EOF
-      def read_input(prefix: "❯")
+      def read_input(prefix: "❯", &block)
         @images = []
         lines = []
         cursor_pos = 0
@@ -164,21 +165,17 @@ module Clacky
               if @images.size < 3
                 @images << pasted[:path]
               else
-                # Show warning below input box
-                print "\n"
+                # Show warning below input box (without extra newline)
                 @formatter.warning("Maximum 3 images allowed. Delete an image first (Ctrl+D).")
 
                 # Wait a moment for user to see the message
                 sleep(1.5)
 
-                # Clear the warning lines
+                # Clear the warning line
                 print "\r\e[2K"  # Clear current line
-                print "\e[1A"    # Move up one line
-                print "\r\e[2K"  # Clear the warning line
 
                 # Now clear the entire input box using the saved line count
                 if @last_display_lines && @last_display_lines > 0
-                  # We're now at the position where the input box ends
                   # Move up to the first line of input box
                   (@last_display_lines - 1).times do
                     print "\e[1A"
@@ -260,6 +257,17 @@ module Clacky
 
           when "\e[D" # Left arrow
             cursor_pos = [cursor_pos - 1, 0].max
+
+          # Ignore Shift+Arrow keys (they produce sequences like \e[1;2A, \e[1;2B, etc.)
+          when /\e\[1;2[ABCD]/
+            # Do nothing - ignore Shift+Arrow keys
+
+          when "\e[Z" # Shift+Tab - Toggle auto-approve mode
+            # Call the block to update status bar if provided
+            if block
+              block.call(@last_display_lines)
+            end
+            # Continue the input loop, don't return
 
           when "\u0001" # Ctrl+A - Move to beginning of line
             cursor_pos = 0
@@ -562,11 +570,28 @@ module Clacky
 
           # Handle escape sequences (arrow keys, special keys)
           if c == "\e"
-            # Read the next 2 characters for escape sequences
+            # Read the next character to determine sequence type
             begin
-              extra = io.read_nonblock(2)
-              extra = extra.force_encoding('UTF-8') if extra.encoding != Encoding::UTF_8
-              c = c + extra
+              next_char = io.read_nonblock(1)
+              next_char = next_char.force_encoding('UTF-8') if next_char.encoding != Encoding::UTF_8
+              c = c + next_char
+
+              # If it's a CSI sequence (starts with [)
+              if next_char == "["
+                # Read until we get a letter (the final character of CSI sequence)
+                # This handles both simple sequences like \e[A and complex ones like \e[1;2D
+                loop do
+                  if IO.select([io], nil, nil, 0.01)  # 10ms timeout
+                    char = io.read_nonblock(1)
+                    char = char.force_encoding('UTF-8') if char.encoding != Encoding::UTF_8
+                    c = c + char
+                    # Break if we got a letter (final character of CSI sequence)
+                    break if char =~ /[A-Za-z~]/
+                  else
+                    break
+                  end
+                end
+              end
             rescue IO::WaitReadable, Errno::EAGAIN
               # No more characters available
             end

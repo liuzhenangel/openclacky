@@ -390,7 +390,31 @@ module Clacky
             )
 
             # Use enhanced prompt with "❯" prefix
-            result = prompt.read_input(prefix: "❯")
+            result = prompt.read_input(prefix: "❯") do |display_lines|
+              # Shift+Tab pressed - toggle mode and update status bar
+              if agent_config.permission_mode == :confirm_safes
+                agent_config.permission_mode = :auto_approve
+              else
+                agent_config.permission_mode = :confirm_safes
+              end
+
+              # Update status bar (it's above the input box)
+              # display_lines includes the final newline, so we need display_lines moves to reach status bar
+              print "\e[#{display_lines}A"  # Move up to status bar line
+              print "\r\e[2K"  # Clear the status bar line
+
+              # Redisplay status bar with new mode (puts adds newline, cursor moves to next line)
+              statusbar.display(
+                working_dir: working_dir,
+                mode: agent_config.permission_mode.to_s,
+                model: agent_config.model,
+                tasks: total_tasks,
+                cost: total_cost
+              )
+
+              # Move back down to original position (display_lines - 1 because puts moved us down 1)
+              print "\e[#{display_lines - 1}B"
+            end
             
             # EnhancedPrompt returns:
             # - { text: String, images: Array } for normal input
