@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-01-18
+
+### Added
+- **Image Support**: Added support for image handling with cost tracking and display
+- **Enhanced Input Controls**: Added Emacs-like Ctrl+A/E navigation for input fields
+- **Session Management**: Added `/clear` command to clear session history
+- **Edit Mode Switching**: New feature to switch between different edit modes
+- **File Operations**: Support for reading from home directory (`~/`) and current directory (`.`)
+- **Image Management**: Ctrl+D hotkey to delete images functionality
+
+### Improved
+- **Cost Tracking**: Display detailed cost information at every turn for better transparency
+- **Performance**: Test suite speed optimizations and performance improvements
+- **Token Efficiency**: Reduced token usage in grep operations for cost savings
+
+### Fixed
+- Fixed system Cmd+V copy functionality for multi-line text
+- Fixed input flickering issues during text editing
+- Removed unnecessary blank lines from image handling
+
 ## [0.5.4] - 2026-01-16
 
 ### Added
