@@ -113,6 +113,19 @@ module Clacky
         render_output
       end
 
+      # Update the last line in output area (for progress indicator)
+      # @param content [String] Content to update
+      def update_last_line(content)
+        output_area.update_last_line(content)
+        render_output
+      end
+
+      # Remove the last line from output area
+      def remove_last_line
+        output_area.remove_last_line
+        render_output
+      end
+
       # Move input content to output area
       def move_input_to_output
         content = input_area.current_content

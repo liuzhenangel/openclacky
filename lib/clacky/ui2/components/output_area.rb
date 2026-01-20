@@ -80,6 +80,21 @@ module Clacky
           @scroll_offset = 0
         end
 
+        # Update the last line in buffer (for progress indicator)
+        # @param content [String] New content for last line
+        def update_last_line(content)
+          return if @buffer.empty?
+
+          @buffer[-1] = content
+        end
+
+        # Remove the last line from buffer
+        def remove_last_line
+          return if @buffer.empty?
+
+          @buffer.pop
+        end
+
         # Check if currently at bottom
         # @return [Boolean] True if showing the latest content
         def at_bottom?

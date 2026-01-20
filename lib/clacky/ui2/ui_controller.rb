@@ -57,6 +57,17 @@ module Clacky
         @layout.append_output(content)
       end
 
+      # Update the last line in output area (for progress indicator)
+      # @param content [String] Content to update
+      def update_progress_line(content)
+        @layout.update_last_line(content)
+      end
+
+      # Clear the progress line (remove last line)
+      def clear_progress_line
+        @layout.remove_last_line
+      end
+
       # Update status bar
       # @param text [String] Status text
       def update_status(text)
@@ -100,11 +111,8 @@ module Clacky
           append_output(output)
         end
 
-        # Thinking event
-        @event_bus.on(:thinking) do |_data|
-          output = @renderer.render_thinking
-          append_output(output)
-        end
+        # Thinking event - handled by AgentAdapter progress indicator
+        # No need to output here
 
         # Status update event
         @event_bus.on(:status_update) do |data|

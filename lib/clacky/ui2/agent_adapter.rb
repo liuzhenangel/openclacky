@@ -284,7 +284,7 @@ module Clacky
         end
       end
 
-      # Start progress indicator in status bar
+      # Start progress indicator in output area
       private def start_progress_indicator
         @progress_mutex.synchronize do
           return if @progress_running
@@ -293,10 +293,13 @@ module Clacky
           @progress_start_time = Time.now
           @thinking_verb = Clacky::THINKING_VERBS.sample
 
+          # Show initial progress in output area
+          @ui_controller.append_output("[..] #{@thinking_verb}...")
+
           @progress_thread = Thread.new do
             while @progress_running
               elapsed = (Time.now - @progress_start_time).to_i
-              @ui_controller.update_status("#{@thinking_verb}… (ctrl+c to interrupt · #{elapsed}s)")
+              @ui_controller.update_progress_line("[..] #{@thinking_verb}... (#{elapsed}s)")
               sleep 0.5
             end
           end
@@ -315,8 +318,8 @@ module Clacky
         @progress_thread&.join(1)
         @progress_thread = nil
 
-        # Clear status bar
-        @ui_controller.update_status("")
+        # Clear the progress line
+        @ui_controller.clear_progress_line
       end
     end
   end
