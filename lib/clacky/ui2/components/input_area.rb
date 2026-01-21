@@ -179,7 +179,11 @@ module Clacky
         def position_cursor(start_row)
           # Cursor is in input area: start_row + session_bar(1) + separator(1) + images + line_index
           cursor_row = start_row + 2 + @images.size + @line_index
-          cursor_col = prompt.length + @cursor_position
+          # Calculate display width of text before cursor (considering multi-byte characters like Chinese)
+          chars = current_line.chars
+          text_before_cursor = chars[0...@cursor_position].join
+          display_width = calculate_display_width(text_before_cursor)
+          cursor_col = prompt.length + display_width
           move_cursor(cursor_row, cursor_col)
         end
 
@@ -708,6 +712,37 @@ module Clacky
 
         def flush
           $stdout.flush
+        end
+
+        # Calculate display width of a string, considering multi-byte characters
+        # East Asian Wide and Fullwidth characters (like Chinese) take 2 columns
+        # @param text [String] UTF-8 encoded text
+        # @return [Integer] Display width in terminal columns
+        def calculate_display_width(text)
+          width = 0
+          text.each_char do |char|
+            code = char.ord
+            # East Asian Wide and Fullwidth characters
+            # See: https://www.unicode.org/reports/tr11/
+            if (code >= 0x1100 && code <= 0x115F) ||   # Hangul Jamo
+               (code >= 0x2329 && code <= 0x232A) ||   # Left/Right-Pointing Angle Brackets
+               (code >= 0x2E80 && code <= 0x303E) ||   # CJK Radicals Supplement .. CJK Symbols and Punctuation
+               (code >= 0x3040 && code <= 0xA4CF) ||   # Hiragana .. Yi Radicals
+               (code >= 0xAC00 && code <= 0xD7A3) ||   # Hangul Syllables
+               (code >= 0xF900 && code <= 0xFAFF) ||   # CJK Compatibility Ideographs
+               (code >= 0xFE10 && code <= 0xFE19) ||   # Vertical Forms
+               (code >= 0xFE30 && code <= 0xFE6F) ||   # CJK Compatibility Forms .. Small Form Variants
+               (code >= 0xFF00 && code <= 0xFF60) ||   # Fullwidth Forms
+               (code >= 0xFFE0 && code <= 0xFFE6) ||   # Fullwidth Forms
+               (code >= 0x1F300 && code <= 0x1F9FF) || # Emoticons, Symbols, etc.
+               (code >= 0x20000 && code <= 0x2FFFD) || # CJK Unified Ideographs Extension B..F
+               (code >= 0x30000 && code <= 0x3FFFD)    # CJK Unified Ideographs Extension G
+              width += 2
+            else
+              width += 1
+            end
+          end
+          width
         end
       end
     end
