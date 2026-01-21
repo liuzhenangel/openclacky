@@ -244,7 +244,9 @@ module Clacky
         when :update
           # Update the last line of output with current input
           @output_area.update_last_line(@inline_input.render)
-          @layout.render_all
+          @layout.render_output
+          # Position cursor for inline input
+          @layout.position_inline_input_cursor(@inline_input)
         when :submit, :cancel
           # InlineInput is done, will be cleaned up by InputCollector
           nil

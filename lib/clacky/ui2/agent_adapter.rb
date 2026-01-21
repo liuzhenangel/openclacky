@@ -270,7 +270,17 @@ module Clacky
       # @param call [Hash] Tool call data
       # @return [Hash] Confirmation result with :approved and :feedback keys
       def request_tool_confirmation(call)
-        # Show tool preview
+        # Show detailed preview (including diff for edit/write operations) and check for errors
+        preview_error = show_tool_preview_in_ui(call)
+
+        # If preview detected an error (e.g., edit with non-existent string), auto-deny with feedback
+        if preview_error && preview_error[:error]
+          feedback = build_preview_error_feedback(call[:name], preview_error)
+          @ui_controller.append_output("\nTool call auto-denied due to preview error")
+          return { approved: false, feedback: feedback }
+        end
+
+        # Show tool preview text for the confirmation prompt
         preview_text = format_tool_call(call)
 
         # Use InputCollector for confirmation (uses InlineInput internally)
@@ -331,6 +341,147 @@ module Clacky
 
         # Clear the progress line
         @ui_controller.clear_progress_line
+      end
+
+      # Show tool preview in UI (similar to agent's show_tool_preview but outputs to UI)
+      # @param call [Hash] Tool call data
+      # @return [Hash, nil] Error hash if preview detects an error, nil otherwise
+      private def show_tool_preview_in_ui(call)
+        begin
+          args = JSON.parse(call[:arguments], symbolize_names: true)
+
+          case call[:name]
+          when "write"
+            show_write_preview_in_ui(args)
+          when "edit"
+            return show_edit_preview_in_ui(args)
+          when "shell", "safe_shell"
+            show_shell_preview_in_ui(args)
+          else
+            # For other tools, show formatted arguments
+            tool = get_tool_instance(call[:name])
+            if tool
+              formatted = tool.format_call(args) rescue "#{call[:name]}(...)"
+              @ui_controller.append_output("\nArgs: #{formatted}")
+            end
+          end
+
+          nil  # No error
+        rescue JSON::ParserError
+          @ui_controller.append_output("\nArgs: #{call[:arguments]}")
+          nil
+        end
+      end
+
+      # Show write preview in UI
+      # @param args [Hash] Write tool arguments
+      # @return [nil] Always returns nil (no errors to detect)
+      private def show_write_preview_in_ui(args)
+        path = args[:path] || args['path']
+        new_content = args[:content] || args['content'] || ""
+
+        @ui_controller.append_output("\n📝 File: #{path || '(unknown)'}")
+
+        if path && File.exist?(path)
+          old_content = File.read(path)
+          @ui_controller.append_output("Modifying existing file\n")
+          show_diff_in_ui(old_content, new_content, max_lines: 50)
+        else
+          @ui_controller.append_output("Creating new file\n")
+          # Show diff from empty content to new content (all additions)
+          show_diff_in_ui("", new_content, max_lines: 50)
+        end
+
+        nil
+      end
+
+      # Show edit preview in UI
+      # @param args [Hash] Edit tool arguments
+      # @return [Hash, nil] Error hash if validation fails, nil otherwise
+      private def show_edit_preview_in_ui(args)
+        path = args[:path] || args[:file_path] || args['path'] || args['file_path']
+        old_string = args[:old_string] || args['old_string'] || ""
+        new_string = args[:new_string] || args['new_string'] || ""
+
+        @ui_controller.append_output("\n📝 File: #{path || '(unknown)'}")
+
+        if !path || path.empty?
+          @ui_controller.append_output("   ⚠️  No file path provided")
+          return { error: "No file path provided for edit operation" }
+        end
+
+        unless File.exist?(path)
+          @ui_controller.append_output("   ⚠️  File not found: #{path}")
+          return { error: "File not found: #{path}", path: path }
+        end
+
+        if old_string.empty?
+          @ui_controller.append_output("   ⚠️  No old_string provided (nothing to replace)")
+          return { error: "No old_string provided (nothing to replace)" }
+        end
+
+        file_content = File.read(path)
+
+        # Check if old_string exists in file
+        unless file_content.include?(old_string)
+          @ui_controller.append_output("   ⚠️  String to replace not found in file")
+          @ui_controller.append_output("   Looking for (first 100 chars):")
+          @ui_controller.append_output("   #{old_string[0..100].inspect}")
+          return {
+            error: "String to replace not found in file",
+            path: path,
+            looking_for: old_string[0..200]
+          }
+        end
+
+        new_content = file_content.sub(old_string, new_string)
+        show_diff_in_ui(file_content, new_content, max_lines: 50)
+        nil  # No error
+      end
+
+      # Show shell preview in UI
+      # @param args [Hash] Shell tool arguments
+      # @return [nil] Always returns nil (no errors to detect)
+      private def show_shell_preview_in_ui(args)
+        command = args[:command] || ""
+        @ui_controller.append_output("\n💻 Command: #{command}")
+        nil
+      end
+
+      # Show diff in UI using Diffy
+      # @param old_content [String] Original content
+      # @param new_content [String] New content
+      # @param max_lines [Integer] Maximum lines to show
+      private def show_diff_in_ui(old_content, new_content, max_lines: 50)
+        require 'diffy'
+
+        diff = Diffy::Diff.new(old_content, new_content, context: 3)
+        all_lines = diff.to_s(:color).lines
+        display_lines = all_lines.first(max_lines)
+
+        display_lines.each { |line| @ui_controller.append_output(line.chomp) }
+        if all_lines.size > max_lines
+          @ui_controller.append_output("\n... (#{all_lines.size - max_lines} more lines, diff truncated)")
+        end
+      rescue LoadError
+        # Fallback if diffy is not available
+        @ui_controller.append_output("   Old size: #{old_content.bytesize} bytes")
+        @ui_controller.append_output("   New size: #{new_content.bytesize} bytes")
+      end
+
+      # Build helpful feedback message for preview errors
+      # @param tool_name [String] Name of the tool
+      # @param error_info [Hash] Error information from preview
+      # @return [String] Feedback message for the agent
+      private def build_preview_error_feedback(tool_name, error_info)
+        case tool_name
+        when "edit"
+          "The edit operation will fail because the old_string was not found in the file. " \
+          "Please use file_reader to read '#{error_info[:path]}' first, " \
+          "find the correct string to replace, and try again with the exact string (including whitespace)."
+        else
+          "Tool preview error: #{error_info[:error]}"
+        end
       end
     end
   end

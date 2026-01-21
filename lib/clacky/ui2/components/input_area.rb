@@ -128,10 +128,9 @@ module Clacky
         def render(start_row:, width: nil)
           @width = width || TTY::Screen.width
 
-          # When paused, only render session bar and hide cursor
+          # When paused, only render session bar (don't manage cursor)
           if @paused
             render_sessionbar(start_row)
-            hide_cursor
             flush
             return
           end
@@ -191,8 +190,8 @@ module Clacky
             current_row += 1
           end
 
+          # Position cursor at current edit position
           position_cursor(start_row)
-          show_cursor
           flush
         end
 
@@ -749,15 +748,6 @@ module Clacky
           $stdout.flush
         end
 
-        def show_cursor
-          print "\e[?25h"
-        end
-
-        def hide_cursor
-          print "\e[?25l"
-        end
-
-        # Calculate display width of a string, considering multi-byte characters
         # East Asian Wide and Fullwidth characters (like Chinese) take 2 columns
         # @param text [String] UTF-8 encoded text
         # @return [Integer] Display width in terminal columns

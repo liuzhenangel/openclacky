@@ -77,6 +77,23 @@ module Clacky
         end
       end
 
+      # Position cursor for inline input in output area
+      # @param inline_input [Components::InlineInput] InlineInput component
+      def position_inline_input_cursor(inline_input)
+        return unless inline_input
+
+        # Cursor is at the last line of output area
+        # Calculate which row that is based on visible lines
+        visible_range = output_area.visible_range
+        last_visible_row = [visible_range[:end] - 1, 0].max
+        cursor_row = [last_visible_row, @output_height - 1].min
+        cursor_col = inline_input.cursor_col
+
+        screen.move_cursor(cursor_row, cursor_col)
+        screen.show_cursor
+        screen.flush
+      end
+
       # Update todos and re-render
       # @param todos [Array<Hash>] Array of todo items
       def update_todos(todos)
@@ -161,6 +178,10 @@ module Clacky
         render_gap_line
         render_todo_internal
         input_area.render(start_row: @input_row, width: screen.width)
+        # Ensure cursor is shown at input area (unless paused)
+        unless input_area.paused?
+          screen.show_cursor
+        end
         screen.flush
       end
 

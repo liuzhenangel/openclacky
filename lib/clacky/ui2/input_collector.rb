@@ -131,7 +131,9 @@ module Clacky
 
         # Add initial inline input line to output
         @ui_controller.layout.output_area.append(inline_input.render)
-        @ui_controller.layout.render_all
+        @ui_controller.layout.render_output
+        # Position cursor for inline input
+        @ui_controller.layout.position_inline_input_cursor(inline_input)
 
         # Collect input (blocks until user presses Enter)
         result_text = inline_input.collect
@@ -150,6 +152,7 @@ module Clacky
         @ui_controller.instance_variable_set(:@inline_input, nil)
         @ui_controller.layout.input_area.resume
         @ui_controller.layout.recalculate_layout
+        # Re-render everything and restore cursor to input area
         @ui_controller.layout.render_all
 
         # Parse result
