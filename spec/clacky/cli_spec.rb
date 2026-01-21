@@ -41,49 +41,4 @@ RSpec.describe Clacky::CLI do
       end
     end
   end
-
-  describe "run_in_directory" do
-    let(:cli) { Clacky::CLI.new }
-
-    it "executes block in specified directory" do
-      original_dir = Dir.pwd
-
-      Dir.mktmpdir do |dir|
-        result_dir = nil
-
-        cli.send(:run_in_directory, dir) do
-          result_dir = Dir.pwd
-        end
-
-        expect(Pathname.new(result_dir).realpath.to_s).to eq(Pathname.new(dir).realpath.to_s)
-        expect(Dir.pwd).to eq(original_dir)
-      end
-    end
-
-    it "restores original directory after block execution" do
-      original_dir = Dir.pwd
-
-      Dir.mktmpdir do |dir|
-        cli.send(:run_in_directory, dir) do
-          # Do something
-        end
-
-        expect(Dir.pwd).to eq(original_dir)
-      end
-    end
-
-    it "restores original directory even if block raises error" do
-      original_dir = Dir.pwd
-
-      Dir.mktmpdir do |dir|
-        expect do
-          cli.send(:run_in_directory, dir) do
-            raise StandardError, "Test error"
-          end
-        end.to raise_error(StandardError, "Test error")
-
-        expect(Dir.pwd).to eq(original_dir)
-      end
-    end
-  end
 end

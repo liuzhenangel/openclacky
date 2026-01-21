@@ -4,13 +4,10 @@
 # Provides split-screen interface with scrollable output and fixed input
 
 require_relative "ui2/theme_manager"
-require_relative "ui2/event_bus"
 require_relative "ui2/screen_buffer"
 require_relative "ui2/layout_manager"
 require_relative "ui2/view_renderer"
 require_relative "ui2/ui_controller"
-require_relative "ui2/input_collector"
-require_relative "ui2/agent_adapter"
 
 require_relative "ui2/components/base_component"
 require_relative "ui2/components/output_area"

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "event_bus"
 require_relative "layout_manager"
 require_relative "view_renderer"
 require_relative "components/output_area"
@@ -13,11 +12,10 @@ module Clacky
   module UI2
     # UIController is the MVC controller layer that coordinates UI state and user interactions
     class UIController
-      attr_reader :event_bus, :layout, :renderer, :running, :inline_input
+      attr_reader :layout, :renderer, :running, :inline_input
       attr_accessor :config
 
       def initialize(config = {})
-        @event_bus = EventBus.new
         @renderer = ViewRenderer.new
 
         # Set theme if specified
@@ -47,11 +45,12 @@ module Clacky
 
         @running = false
         @input_callback = nil
-        @agent_thread = nil
+        @interrupt_callback = nil
         @tasks_count = 0
         @total_cost = 0.0
-
-        setup_default_event_listeners
+        @progress_thread = nil
+        @progress_start_time = nil
+        @progress_message = nil
       end
 
       # Start the UI controller
@@ -104,6 +103,12 @@ module Clacky
         @input_callback = block
       end
 
+      # Set callback for interrupt (Ctrl+C)
+      # @param block [Proc] Callback to execute on interrupt
+      def on_interrupt(&block)
+        @interrupt_callback = block
+      end
+
       # Append output to the output area
       # @param content [String] Content to append
       def append_output(content)
@@ -127,42 +132,263 @@ module Clacky
         @layout.update_todos(todos)
       end
 
+      # === Semantic UI Methods (for Agent to call directly) ===
+
+      # Show user message
+      # @param content [String] Message content
+      # @param images [Array] Image paths (optional)
+      def show_user_message(content, images: [])
+        output = @renderer.render_user_message(content)
+        append_output(output)
+      end
+
+      # Show assistant message
+      # @param content [String] Message content
+      def show_assistant_message(content)
+        output = @renderer.render_assistant_message(content)
+        append_output(output)
+      end
+
+      # Show tool call
+      # @param name [String] Tool name
+      # @param args [String, Hash] Tool arguments (JSON string or Hash)
+      def show_tool_call(name, args)
+        formatted_call = format_tool_call(name, args)
+        output = @renderer.render_tool_call(tool_name: name, formatted_call: formatted_call)
+        append_output(output)
+      end
+
+      # Show tool result
+      # @param result [String, Hash] Tool result
+      def show_tool_result(result)
+        result_str = result.is_a?(Hash) ? JSON.pretty_generate(result) : result.to_s
+        output = @renderer.render_tool_result(result: result_str)
+        append_output(output)
+      end
+
+      # Show tool error
+      # @param error [String, Exception] Error message or exception
+      def show_tool_error(error)
+        error_msg = error.is_a?(Exception) ? error.message : error.to_s
+        output = @renderer.render_tool_error(error: error_msg)
+        append_output(output)
+      end
+
+      # Show completion status
+      # @param iterations [Integer] Number of iterations
+      # @param cost [Float] Cost of this run
+      # @param total_cost [Float, nil] Total accumulated cost (optional)
+      def show_complete(iterations:, cost:, total_cost: nil)
+        message = if total_cost
+          "Task complete (#{iterations} iterations, $#{cost.round(4)}, total: $#{total_cost.round(4)})"
+        else
+          "Task complete (#{iterations} iterations, $#{cost.round(4)})"
+        end
+        output = @renderer.render_success(message)
+        append_output(output)
+      end
+
+      # Show progress indicator with dynamic elapsed time
+      # @param message [String] Progress message
+      def show_progress(message)
+        # Stop any existing progress thread
+        stop_progress_thread
+
+        @progress_message = message
+        @progress_start_time = Time.now
+
+        # Show initial progress
+        output = @renderer.render_progress("#{message} (0s)")
+        append_output(output)
+
+        # Start background thread to update elapsed time
+        @progress_thread = Thread.new do
+          while @progress_start_time
+            sleep 0.5
+            next unless @progress_start_time
+
+            elapsed = (Time.now - @progress_start_time).to_i
+            update_progress_line(@renderer.render_progress("#{@progress_message} (#{elapsed}s)"))
+          end
+        rescue => e
+          # Silently handle thread errors
+        end
+      end
+
+      # Clear progress indicator
+      def clear_progress
+        stop_progress_thread
+        clear_progress_line
+      end
+
+      # Stop the progress update thread
+      def stop_progress_thread
+        @progress_start_time = nil
+        if @progress_thread&.alive?
+          @progress_thread.kill
+          @progress_thread = nil
+        end
+      end
+
+      # Show info message
+      # @param message [String] Info message
+      def show_info(message)
+        output = @renderer.render_system_message(message)
+        append_output(output)
+      end
+
+      # Show warning message
+      # @param message [String] Warning message
+      def show_warning(message)
+        output = @renderer.render_warning(message)
+        append_output(output)
+      end
+
+      # Show error message
+      # @param message [String] Error message
+      def show_error(message)
+        output = @renderer.render_error(message)
+        append_output(output)
+      end
+
+      # Show help text
+      def show_help
+        help_text = <<~HELP
+          📖 Commands:
+            /help     - Show this help
+            /clear    - Clear session and start fresh
+            /exit     - Exit
+
+          Keyboard shortcuts:
+            Ctrl+C    - Interrupt/Exit
+            Ctrl+L    - Clear output area
+            Ctrl+U    - Clear input line
+            Up/Down   - Scroll output (when input empty) or history
+            Left/Right - Move cursor in input
+            Home/End  - Jump to start/end of input
+        HELP
+        append_output(help_text)
+      end
+
+      # Request confirmation from user (blocking)
+      # @param message [String] Confirmation prompt
+      # @param default [Boolean] Default value if user presses Enter
+      # @return [Boolean, String, nil] true/false for yes/no, String for feedback, nil for cancelled
+      def request_confirmation(message, default: true)
+        # Show question in output
+        append_output("? #{message}")
+
+        # Pause InputArea
+        @input_area.pause
+        @layout.recalculate_layout
+
+        # Create InlineInput
+        inline_input = Components::InlineInput.new(
+          prompt: "  (y/n, or provide feedback): ",
+          default: nil
+        )
+        @inline_input = inline_input
+
+        # Add inline input line to output
+        @output_area.append(inline_input.render)
+        @layout.render_output
+        @layout.position_inline_input_cursor(inline_input)
+
+        # Collect input (blocks until user presses Enter)
+        result_text = inline_input.collect
+
+        # Clean up - remove the inline input line
+        @output_area.remove_last_line
+
+        # Append the final response to output
+        if result_text.nil?
+          append_output("  [Cancelled]")
+        else
+          display_text = result_text.empty? ? (default ? "y" : "n") : result_text
+          append_output("  #{display_text}")
+        end
+
+        # Deactivate and clean up
+        @inline_input = nil
+        @input_area.resume
+        @layout.recalculate_layout
+        @layout.render_all
+
+        # Parse result
+        return nil if result_text.nil?  # Cancelled
+
+        response = result_text.strip.downcase
+        case response
+        when "y", "yes" then true
+        when "n", "no" then false
+        when "" then default
+        else
+          result_text  # Return feedback text
+        end
+      end
+
+      # Show diff between old and new content
+      # @param old_content [String] Old content
+      # @param new_content [String] New content
+      # @param max_lines [Integer] Maximum lines to show
+      def show_diff(old_content, new_content, max_lines: 50)
+        require 'diffy'
+
+        diff = Diffy::Diff.new(old_content, new_content, context: 3)
+        all_lines = diff.to_s(:color).lines
+        display_lines = all_lines.first(max_lines)
+
+        display_lines.each { |line| append_output(line.chomp) }
+        if all_lines.size > max_lines
+          append_output("\n... (#{all_lines.size - max_lines} more lines, diff truncated)")
+        end
+      rescue LoadError
+        # Fallback if diffy is not available
+        append_output("   Old size: #{old_content.bytesize} bytes")
+        append_output("   New size: #{new_content.bytesize} bytes")
+      end
+
       private
 
-      # Setup default event listeners for common events
-      def setup_default_event_listeners
-        # User message event
-        @event_bus.on(:user_message) do |data|
-          output = @renderer.render_user_message(data[:content], timestamp: data[:timestamp])
-          append_output(output)
+      # Format tool call for display
+      # @param name [String] Tool name
+      # @param args [String, Hash] Tool arguments
+      # @return [String] Formatted call string
+      def format_tool_call(name, args)
+        args_hash = args.is_a?(String) ? JSON.parse(args, symbolize_names: true) : args
+
+        # Try to get tool instance for custom formatting
+        tool = get_tool_instance(name)
+        if tool
+          begin
+            return tool.format_call(args_hash)
+          rescue StandardError
+            # Fallback
+          end
         end
 
-        # Assistant message event
-        @event_bus.on(:assistant_message) do |data|
-          output = @renderer.render_assistant_message(data[:content], timestamp: data[:timestamp])
-          append_output(output)
-        end
+        # Simple fallback
+        "#{name}(...)"
+      rescue JSON::ParserError
+        "#{name}(...)"
+      end
 
-        # Tool call event
-        @event_bus.on(:tool_call) do |data|
-          output = @renderer.render_tool_call(
-            tool_name: data[:tool_name],
-            formatted_call: data[:formatted_call]
-          )
-          append_output(output)
-        end
+      # Get tool instance by name
+      # @param tool_name [String] Tool name
+      # @return [Object, nil] Tool instance or nil
+      def get_tool_instance(tool_name)
+        # Convert tool_name to class name (e.g., "file_reader" -> "FileReader")
+        class_name = tool_name.split('_').map(&:capitalize).join
 
-        # Tool result event
-        @event_bus.on(:tool_result) do |data|
-          output = @renderer.render_tool_result(result: data[:result])
-          append_output(output)
+        # Try to find the class in Clacky::Tools namespace
+        if Clacky::Tools.const_defined?(class_name)
+          tool_class = Clacky::Tools.const_get(class_name)
+          tool_class.new
+        else
+          nil
         end
-
-        # Tool error event
-        @event_bus.on(:tool_error) do |data|
-          output = @renderer.render_tool_error(error: data[:error])
-          append_output(output)
-        end
+      rescue NameError
+        nil
       end
 
       # Display welcome banner with logo and agent info
@@ -217,12 +443,15 @@ module Clacky
           stop
           exit(0)
         when :interrupt
-          # Kill agent thread if running
-          if @agent_thread&.alive?
-            @agent_thread.raise(Interrupt, "User interrupted")
-            @agent_thread = nil
-          end
-          @event_bus.publish(:interrupt_requested, {})
+          # Stop progress indicator
+          stop_progress_thread
+
+          # Check if input area has content
+          input_was_empty = @input_area.empty?
+          @input_area.clear unless input_was_empty
+
+          # Notify CLI to handle interrupt (stop agent or exit)
+          @interrupt_callback&.call(input_was_empty: input_was_empty)
         when :clear_output
           @output_area.clear
           @layout.render_all
@@ -248,7 +477,7 @@ module Clacky
           # Position cursor for inline input
           @layout.position_inline_input_cursor(@inline_input)
         when :submit, :cancel
-          # InlineInput is done, will be cleaned up by InputCollector
+          # InlineInput is done, will be cleaned up by request_confirmation
           nil
         end
       end
@@ -258,21 +487,8 @@ module Clacky
         # Append the input content to output area
         @layout.append_output(data[:display]) unless data[:display].empty?
 
-        # Publish user input event
-        @event_bus.publish(:user_input, { content: data[:text], images: data[:images] })
-
-        # Call callback in background thread
-        if @input_callback
-          @agent_thread = Thread.new do
-            @input_callback.call(data[:text], data[:images])
-          rescue Interrupt
-            # Silently handle interrupt - message already shown by AgentAdapter
-          rescue => e
-            @layout.append_output("Error: #{e.message}")
-          ensure
-            @agent_thread = nil
-          end
-        end
+        # Call callback synchronously
+        @input_callback&.call(data[:text], data[:images])
       end
     end
   end

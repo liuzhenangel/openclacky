@@ -10,8 +10,7 @@ require_relative "utils/arguments_parser"
 module Clacky
   class Agent
     attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
-                :cache_stats, :cost_source
-    attr_accessor :tool_confirmation_handler
+                :cache_stats, :cost_source, :ui
 
     # System prompt for the coding agent
     SYSTEM_PROMPT = <<~PROMPT.freeze
@@ -52,7 +51,7 @@ module Clacky
       NEVER stop after just adding todos without executing them!
     PROMPT
 
-    def initialize(client, config = {}, working_dir: nil)
+    def initialize(client, config = {}, working_dir: nil, ui: nil)
       @client = client
       @config = config.is_a?(AgentConfig) ? config : AgentConfig.new(config)
       @tool_registry = ToolRegistry.new
@@ -75,16 +74,16 @@ module Clacky
       @cost_source = :estimated  # Track whether cost is from API or estimated
       @task_cost_source = :estimated  # Track cost source for current task
       @previous_total_tokens = 0  # Track tokens from previous iteration for delta calculation
-      @tool_confirmation_handler = nil  # Optional callback for UI2 integration
       @interrupted = false  # Flag for user interrupt
+      @ui = ui  # UIController for direct UI interaction
 
       # Register built-in tools
       register_builtin_tools
     end
 
     # Restore from a saved session
-    def self.from_session(client, config, session_data)
-      agent = new(client, config)
+    def self.from_session(client, config, session_data, ui: nil)
+      agent = new(client, config, ui: ui)
       agent.restore_session(session_data)
       agent
     end
@@ -132,7 +131,7 @@ module Clacky
       @hooks.add(event, &block)
     end
 
-    def run(user_input, images: [], &block)
+    def run(user_input, images: [])
       @start_time = Time.now
       @task_cost_source = :estimated  # Reset for new task
       @previous_total_tokens = 0  # Reset token tracking for new task
@@ -155,7 +154,6 @@ module Clacky
       @messages << { role: "user", content: user_content }
       @total_tasks += 1
 
-      emit_event(:on_start, { input: user_input }, &block)
       @hooks.trigger(:on_start, user_input)
 
       begin
@@ -163,11 +161,10 @@ module Clacky
           break if should_stop?
 
           @iterations += 1
-          emit_event(:on_iteration, { iteration: @iterations }, &block)
           @hooks.trigger(:on_iteration, @iterations)
 
           # Think: LLM reasoning with tool support
-          response = think(&block)
+          response = think
 
           # Debug: check for potential infinite loops
           if @config.verbose
@@ -176,17 +173,19 @@ module Clacky
 
           # Check if done (no more tool calls needed)
           if response[:finish_reason] == "stop" || response[:tool_calls].nil? || response[:tool_calls].empty?
-            emit_event(:answer, { content: response[:content] }, &block)
+            @ui&.clear_progress
+            @ui&.show_assistant_message(response[:content]) if response[:content] && !response[:content].empty?
             break
           end
 
-          # Emit assistant_message event if there's content before tool calls
+          # Show assistant message if there's content before tool calls
           if response[:content] && !response[:content].empty?
-            emit_event(:assistant_message, { content: response[:content] }, &block)
+            @ui&.clear_progress
+            @ui&.show_assistant_message(response[:content])
           end
 
           # Act: Execute tool calls
-          action_result = act(response[:tool_calls], &block)
+          action_result = act(response[:tool_calls])
 
           # Observe: Add tool results to conversation context
           observe(response, action_result[:tool_results])
@@ -196,7 +195,6 @@ module Clacky
             # If user provided feedback, treat it as a user question/instruction
             if action_result[:feedback] && !action_result[:feedback].empty?
               # Add user feedback as a new user message
-              # Use a clear format that signals this is important user input
               @messages << {
                 role: "user",
                 content: "STOP. The user has a question/feedback for you: #{action_result[:feedback]}\n\nPlease respond to the user's question/feedback before continuing with any actions."
@@ -205,19 +203,19 @@ module Clacky
               next
             else
               # User just said "no" without feedback - stop and wait
-              emit_event(:answer, { content: "Tool execution was denied. Please provide further instructions." }, &block)
+              @ui&.show_assistant_message("Tool execution was denied. Please provide further instructions.")
               break
             end
           end
         end
 
         result = build_result(:success)
-        emit_event(:on_complete, result, &block)
+        @ui&.show_complete(iterations: result[:iterations], cost: result[:total_cost_usd])
         @hooks.trigger(:on_complete, result)
         result
       rescue StandardError => e
         result = build_result(:error, error: e.message)
-        emit_event(:on_complete, result, &block)
+        @ui&.show_error("Error: #{e.message}")
         raise
       end
     end
@@ -370,11 +368,11 @@ module Clacky
       prompt
     end
 
-    def think(&block)
-      emit_event(:thinking, { iteration: @iterations }, &block)
+    def think
+      @ui&.show_progress("Thinking...")
 
       # Compress messages if needed to reduce cost
-      compress_messages_if_needed(&block)
+      compress_messages_if_needed
 
       # Always send tools definitions to allow multi-step tool calling
       tools_to_send = @tool_registry.allowed_definitions(@config.allowed_tools)
@@ -396,19 +394,11 @@ module Clacky
       rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
         retries += 1
         if retries <= max_retries
-          emit_event(:network_retry, {
-            error: e.message,
-            retry_count: retries,
-            max_retries: max_retries,
-            delay: retry_delay
-          }, &block)
+          @ui&.show_warning("Network failed: #{e.message}. Retry #{retries}/#{max_retries}...")
           sleep retry_delay
           retry
         else
-          emit_event(:network_error, {
-            error: e.message,
-            retries: max_retries
-          }, &block)
+          @ui&.show_error("Network failed after #{max_retries} retries: #{e.message}")
           raise Error, "Network connection failed after #{max_retries} retries: #{e.message}"
         end
       end
@@ -424,7 +414,7 @@ module Clacky
 
         if recent_truncations >= 2
           # Too many truncations - task is too complex
-          emit_event(:response_truncated, { recoverable: false }, &block) if @config.verbose
+          @ui&.show_error("Response truncated multiple times. Task is too complex.")
 
           # Create a response that tells the user to break down the task
           error_response = {
@@ -456,10 +446,10 @@ module Clacky
                    "- Use multiple tool calls instead of one large call"
         }
 
-        emit_event(:response_truncated, { recoverable: true }, &block) if @config.verbose
+        @ui&.show_warning("Response truncated. Retrying with smaller steps...")
 
         # Recursively retry
-        return think(&block)
+        return think
       end
 
       # Add assistant response to messages
@@ -470,14 +460,10 @@ module Clacky
       msg[:tool_calls] = format_tool_calls_for_api(response[:tool_calls]) if response[:tool_calls]
       @messages << msg
 
-      if @config.verbose
-        emit_event(:debug, { message: "Assistant response added", data: msg }, &block)
-      end
-
       response
     end
 
-    def act(tool_calls, &block)
+    def act(tool_calls)
       return { denied: false, feedback: nil, tool_results: [] } unless tool_calls
 
       denied = false
@@ -488,7 +474,7 @@ module Clacky
         # Hook: before_tool_use
         hook_result = @hooks.trigger(:before_tool_use, call)
         if hook_result[:action] == :deny
-          emit_event(:tool_denied, call, &block)
+          @ui&.show_warning("Tool #{call[:name]} denied by hook")
           results << build_error_result(call, hook_result[:reason] || "Tool use denied by hook")
           next
         end
@@ -496,21 +482,20 @@ module Clacky
         # Permission check (if not in auto-approve mode)
         unless should_auto_execute?(call[:name], call[:arguments])
           if @config.is_plan_only?
-            emit_event(:tool_planned, call, &block)
+            @ui&.show_info("Planned: #{call[:name]}")
             results << build_planned_result(call)
             next
           end
 
-          confirmation = confirm_tool_use?(call, &block)
+          confirmation = confirm_tool_use?(call)
           unless confirmation[:approved]
-            emit_event(:tool_denied, call, &block)
+            @ui&.show_warning("Tool #{call[:name]} denied")
             denied = true
             user_feedback = confirmation[:feedback]
             feedback = user_feedback if user_feedback
             results << build_denied_result(call, user_feedback)
 
             # If user provided feedback, stop processing remaining tools immediately
-            # Let the agent respond to the feedback in the next iteration
             if user_feedback && !user_feedback.empty?
               # Fill in denied results for all remaining tool calls to avoid mismatch
               remaining_calls = tool_calls[(index + 1)..-1] || []
@@ -523,7 +508,7 @@ module Clacky
           end
         end
 
-        emit_event(:tool_call, call, &block)
+        @ui&.show_tool_call(call[:name], call[:arguments])
 
         # Execute tool
         begin
@@ -542,16 +527,16 @@ module Clacky
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
 
-          # Emit todos update event after todo_manager execution
+          # Update todos display after todo_manager execution
           if call[:name] == "todo_manager"
-            emit_event(:todos_updated, { todos: @todos.dup }, &block)
+            @ui&.update_todos(@todos.dup)
           end
 
-          emit_event(:observation, { tool: call[:name], result: result }, &block)
+          @ui&.show_tool_result(result)
           results << build_success_result(call, result)
         rescue StandardError => e
           @hooks.trigger(:on_tool_error, call, e)
-          emit_event(:tool_error, { call: call, error: e }, &block)
+          @ui&.show_tool_error(e)
           results << build_error_result(call, e.message)
         end
       end
@@ -736,7 +721,7 @@ module Clacky
       puts pastel.dim("    [Tokens] #{token_info.join(' | ')}")
     end
 
-    def compress_messages_if_needed(&block)
+    def compress_messages_if_needed
       # Check if compression is enabled
       return unless @config.enable_compression
 
@@ -747,10 +732,7 @@ module Clacky
       original_size = @messages.size
       target_size = @config.keep_recent_messages + 2
 
-      emit_event(:compression_start, {
-        original_size: original_size,
-        target_size: target_size
-      }, &block)
+      @ui&.show_info("Compressing history (#{original_size} -> ~#{target_size} messages)...")
 
       # Find the system message (should be first)
       system_msg = @messages.find { |m| m[:role] == "system" }
@@ -779,10 +761,7 @@ module Clacky
 
       final_size = @messages.size
 
-      emit_event(:compression_complete, {
-        original_size: original_size,
-        final_size: final_size
-      }, &block)
+      @ui&.show_info("Compressed (#{original_size} -> #{final_size} messages)")
     end
 
     def get_recent_messages_with_tool_pairs(messages, count)
@@ -911,88 +890,46 @@ module Clacky
       }
     end
 
-    def emit_event(type, data, &block)
-      return unless block
-
-      block.call({
-        type: type,
-        data: data,
-        iteration: @iterations,
-        cost: @total_cost
-      })
-    end
-
-    def confirm_tool_use?(call, &block)
-      emit_event(:tool_confirmation_required, call, &block)
-
-      # If a custom confirmation handler is set (e.g., from UI2), use it
-      if @tool_confirmation_handler
-        return @tool_confirmation_handler.call(call)
-      end
-
-      # Otherwise, use the default TTY::Prompt confirmation flow
-      confirm_tool_use_tty(call)
-    end
-
-    # Default TTY::Prompt-based confirmation (for non-UI2 mode)
-    private def confirm_tool_use_tty(call)
+    def confirm_tool_use?(call)
       # Show preview first and check for errors
       preview_error = show_tool_preview(call)
 
-      # If preview detected an error (e.g., edit with non-existent string),
-      # auto-deny and provide detailed feedback
+      # If preview detected an error, auto-deny and provide feedback
       if preview_error && preview_error[:error]
-        puts "\nTool call auto-denied due to preview error"
-
-        # Build helpful feedback message
-        feedback = case call[:name]
-        when "edit"
-          "The edit operation will fail because the old_string was not found in the file. " \
-          "Please use file_reader to read '#{preview_error[:path]}' first, " \
-          "find the correct string to replace, and try again with the exact string (including whitespace)."
-        else
-          "Tool preview error: #{preview_error[:error]}"
-        end
-
+        @ui&.show_warning("Tool call auto-denied due to preview error")
+        feedback = build_preview_error_feedback(call[:name], preview_error)
         return { approved: false, feedback: feedback }
       end
 
-      # Then show the confirmation prompt with better formatting
-      prompt_text = format_tool_prompt(call)
-      puts "\n❓ #{prompt_text}"
+      # Request confirmation via UI
+      if @ui
+        prompt_text = format_tool_prompt(call)
+        result = @ui.request_confirmation(prompt_text, default: true)
 
-      # Use TTY::Prompt for better input handling
-      tty_prompt = TTY::Prompt.new(interrupt: :exit)
-
-      begin
-        response = tty_prompt.ask("   (Enter/y to approve, n to deny, or provide feedback):", required: false) do |q|
-          q.modify :strip
+        case result
+        when true
+          { approved: true, feedback: nil }
+        when false, nil
+          { approved: false, feedback: nil }
+        else
+          # String feedback
+          { approved: false, feedback: result.to_s }
         end
-      rescue TTY::Reader::InputInterrupt
-        # Handle Ctrl+C
-        puts
-        return { approved: false, feedback: nil }
+      else
+        # Fallback: auto-approve if no UI
+        { approved: true, feedback: nil }
       end
+    end
 
-      # Handle nil response (EOF/pipe input)
-      if response.nil? || response.empty?
-        return { approved: true, feedback: nil }  # Empty means approved
+    private def build_preview_error_feedback(tool_name, error_info)
+      case tool_name
+      when "edit"
+        "The edit operation will fail because the old_string was not found in the file. " \
+        "Please use file_reader to read '#{error_info[:path]}' first, " \
+        "find the correct string to replace, and try again with the exact string (including whitespace)."
+      else
+        "Tool preview error: #{error_info[:error]}"
       end
-
-      response_lower = response.downcase
-
-      # "y"/"yes" = approved
-      if response_lower == "y" || response_lower == "yes"
-        return { approved: true, feedback: nil }
-      end
-
-      # "n"/"no" = denied without feedback
-      if response_lower == "n" || response_lower == "no"
-        return { approved: false, feedback: nil }
-      end
-
-      # Any other input = denied with feedback
-      { approved: false, feedback: response }
     end
 
     def format_tool_prompt(call)
@@ -1032,6 +969,8 @@ module Clacky
     end
 
     def show_tool_preview(call)
+      return nil unless @ui
+
       begin
         args = JSON.parse(call[:arguments], symbolize_names: true)
 
@@ -1042,22 +981,22 @@ module Clacky
         when "edit"
           preview_error = show_edit_preview(args)
         when "shell", "safe_shell"
-          preview_error = show_shell_preview(args)
+          show_shell_preview(args)
         else
           # For other tools, show formatted arguments
           tool = @tool_registry.get(call[:name]) rescue nil
           if tool
             formatted = tool.format_call(args) rescue "#{call[:name]}(...)"
-            puts "\nArgs: #{formatted}"
+            @ui.append_output("\nArgs: #{formatted}")
           else
-            puts "\nArgs: #{call[:arguments]}"
+            @ui.append_output("\nArgs: #{call[:arguments]}")
           end
         end
 
-        return preview_error
+        preview_error
       rescue JSON::ParserError
-        puts "   Args: #{call[:arguments]}"
-        return nil
+        @ui.append_output("   Args: #{call[:arguments]}")
+        nil
       end
     end
 
@@ -1065,17 +1004,17 @@ module Clacky
       path = args[:path] || args['path']
       new_content = args[:content] || args['content'] || ""
 
-      puts "\n📝 File: #{path || '(unknown)'}"
+      @ui.append_output("\n📝 File: #{path || '(unknown)'}")
 
       if path && File.exist?(path)
         old_content = File.read(path)
-        puts "Modifying existing file\n"
-        show_diff(old_content, new_content, max_lines: 50)
+        @ui.append_output("Modifying existing file")
+        @ui.show_diff(old_content, new_content, max_lines: 50)
       else
-        puts "Creating new file\n"
-        # Show diff from empty content to new content (all additions)
-        show_diff("", new_content, max_lines: 50)
+        @ui.append_output("Creating new file")
+        @ui.show_diff("", new_content, max_lines: 50)
       end
+      nil
     end
 
     def show_edit_preview(args)
@@ -1083,20 +1022,20 @@ module Clacky
       old_string = args[:old_string] || args['old_string'] || ""
       new_string = args[:new_string] || args['new_string'] || ""
 
-      puts "\n📝 File: #{path || '(unknown)'}"
+      @ui.append_output("\n📝 File: #{path || '(unknown)'}")
 
       if !path || path.empty?
-        puts "   ⚠️  No file path provided"
+        @ui.append_output("   ⚠️  No file path provided")
         return { error: "No file path provided for edit operation" }
       end
 
       unless File.exist?(path)
-        puts "   ⚠️  File not found: #{path}"
-        return { error: "File not found: #{path}" }
+        @ui.append_output("   ⚠️  File not found: #{path}")
+        return { error: "File not found: #{path}", path: path }
       end
 
       if old_string.empty?
-        puts "   ⚠️  No old_string provided (nothing to replace)"
+        @ui.append_output("   ⚠️  No old_string provided (nothing to replace)")
         return { error: "No old_string provided (nothing to replace)" }
       end
 
@@ -1104,9 +1043,9 @@ module Clacky
 
       # Check if old_string exists in file
       unless file_content.include?(old_string)
-        puts "   ⚠️  String to replace not found in file"
-        puts "   Looking for (first 100 chars):"
-        puts "   #{old_string[0..100].inspect}"
+        @ui.append_output("   ⚠️  String to replace not found in file")
+        @ui.append_output("   Looking for (first 100 chars):")
+        @ui.append_output("   #{old_string[0..100].inspect}")
         return {
           error: "String to replace not found in file",
           path: path,
@@ -1115,28 +1054,14 @@ module Clacky
       end
 
       new_content = file_content.sub(old_string, new_string)
-      show_diff(file_content, new_content, max_lines: 50)
+      @ui.show_diff(file_content, new_content, max_lines: 50)
       nil  # No error
     end
 
     def show_shell_preview(args)
       command = args[:command] || ""
-      puts "\n💻 Command: #{command}"
-    end
-
-    def show_diff(old_content, new_content, max_lines: 50)
-      require 'diffy'
-
-      diff = Diffy::Diff.new(old_content, new_content, context: 3)
-      all_lines = diff.to_s(:color).lines
-      display_lines = all_lines.first(max_lines)
-
-      display_lines.each { |line| puts line.chomp }
-      puts "\n... (#{all_lines.size - max_lines} more lines, diff truncated)" if all_lines.size > max_lines
-    rescue LoadError
-      # Fallback if diffy is not available
-      puts "   Old size: #{old_content.bytesize} bytes"
-      puts "   New size: #{new_content.bytesize} bytes"
+      @ui.append_output("\n💻 Command: #{command}")
+      nil
     end
 
     def build_success_result(call, result)

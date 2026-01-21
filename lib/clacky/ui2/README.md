@@ -1,12 +1,12 @@
 # Clacky UI2 - MVC Terminal UI System
 
-A modern, MVC-based terminal UI system with split-screen layout, event-driven architecture, and component-based rendering.
+A modern, MVC-based terminal UI system with split-screen layout, component-based rendering, and direct method calls for simplicity.
 
 ## Features
 
 - **Split-Screen Layout**: Scrollable output area on top, fixed input area at bottom
 - **MVC Architecture**: Clean separation of concerns (Model-View-Controller)
-- **Event-Driven**: Publish-subscribe pattern decouples business logic from UI
+- **Direct Method Calls**: Agent directly calls UIController semantic methods
 - **Component-Based**: Reusable, composable UI components
 - **Scrollable Output**: Navigate through history with arrow keys
 - **Input History**: Navigate previous inputs with up/down arrows
@@ -16,98 +16,84 @@ A modern, MVC-based terminal UI system with split-screen layout, event-driven ar
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│           Business Layer                │
-│   (Agent, Tools - data only)            │
-└────────────┬────────────────────────────┘
-             │ Events
-             ▼
-┌─────────────────────────────────────────┐
-│        Controller Layer                 │
-│  - UIController                         │
-│  - EventBus                             │
-└────────────┬────────────────────────────┘
-             │ Render
-             ▼
-┌─────────────────────────────────────────┐
-│          View Layer                     │
-│  - ViewRenderer                         │
-│  - Components (Message, Tool, Status)   │
-└─────────────────────────────────────────┘
++---------------------------------------------+
+|           Business Layer (Agent)            |
+|   Agent directly calls @ui.show_xxx()       |
++-----------------------+---------------------+
+                        | Direct calls
+                        v
++---------------------------------------------+
+|        Controller Layer (UIController)      |
+|  - show_assistant_message()                 |
+|  - show_tool_call()                         |
+|  - show_tool_result()                       |
+|  - request_confirmation()                   |
++-----------------------+---------------------+
+                        | Render
+                        v
++---------------------------------------------+
+|          View Layer (ViewRenderer)          |
+|  - Components (Message, Tool, Status)       |
++---------------------------------------------+
 ```
 
 ## Quick Start
 
-### Simple Usage
+### Agent Integration
 
 ```ruby
-require "clacky/ui2"
+# Create UI controller
+ui_controller = Clacky::UI2::UIController.new(
+  working_dir: Dir.pwd,
+  mode: "confirm_safes",
+  model: "claude-3-5-sonnet"
+)
 
-# Start with a simple callback
-Clacky::UI2.start do |input|
-  puts "User said: #{input}"
+# Create agent with UI injected
+agent = Clacky::Agent.new(client, config, ui: ui_controller)
+
+# Set up input handler
+ui_controller.on_input do |input, images|
+  result = agent.run(input, images: images)
 end
+
+# Start UI (blocks until exit)
+ui_controller.start
 ```
 
-### Full Controller
+### UIController Semantic Methods
+
+The Agent calls these methods directly:
 
 ```ruby
-require "clacky/ui2"
+# Show messages
+@ui.show_assistant_message("Hello!")
+@ui.show_user_message("Hi there", images: [])
 
-# Create controller
-controller = Clacky::UI2::UIController.new
+# Show tool operations
+@ui.show_tool_call("file_reader", { path: "test.rb" })
+@ui.show_tool_result("File contents...")
+@ui.show_tool_error("File not found")
 
-# Handle user input
-controller.on_input do |input|
-  # Echo user message
-  controller.event_bus.publish(:user_message, {
-    content: input,
-    timestamp: Time.now
-  })
-  
-  # Simulate response
-  controller.event_bus.publish(:assistant_message, {
-    content: "I received: #{input}",
-    timestamp: Time.now
-  })
-end
+# Show status
+@ui.show_progress("Thinking...")
+@ui.clear_progress
+@ui.show_complete(iterations: 5, cost: 0.001)
 
-# Start the UI
-controller.start
-```
+# Show info/warning/error
+@ui.show_info("Session saved")
+@ui.show_warning("Rate limited")
+@ui.show_error("Failed to connect")
 
-### Event-Driven Architecture
+# Interactive confirmation
+result = @ui.request_confirmation("Allow file write?", default: true)
+# Returns: true/false for yes/no, String for feedback, nil for cancelled
 
-```ruby
-# Subscribe to events
-controller.event_bus.on(:custom_event) do |data|
-  controller.append_output("Custom: #{data.inspect}")
-end
-
-# Publish events
-controller.event_bus.publish(:custom_event, { key: "value" })
+# Show diff
+@ui.show_diff(old_content, new_content, max_lines: 50)
 ```
 
 ## Components
-
-### EventBus
-
-Publish-subscribe event system for decoupling components.
-
-```ruby
-bus = Clacky::UI2::EventBus.new
-
-# Subscribe
-subscription_id = bus.on(:my_event) do |data|
-  puts "Received: #{data}"
-end
-
-# Publish
-bus.publish(:my_event, { message: "hello" })
-
-# Unsubscribe
-bus.off(:my_event, subscription_id)
-```
 
 ### ViewRenderer
 
@@ -188,22 +174,10 @@ layout.scroll_output_up(5)
 layout.cleanup_screen
 ```
 
-## Built-in Events
-
-The UIController automatically handles these events:
-
-- `:user_message` - User input message
-- `:assistant_message` - Assistant response
-- `:tool_call` - Tool execution start
-- `:tool_result` - Tool execution result
-- `:tool_error` - Tool execution error
-- `:thinking` - Thinking indicator
-- `:status_update` - Status bar update
-
 ## Keyboard Shortcuts
 
 - **Enter** - Submit input
-- **Ctrl+C** - Exit
+- **Ctrl+C** - Exit/Interrupt
 - **Ctrl+L** - Clear output
 - **Ctrl+U** - Clear input line
 - **Up/Down** - Scroll output (when input empty) or navigate history
@@ -215,81 +189,25 @@ The UIController automatically handles these events:
 ## Layout Structure
 
 ```
-┌────────────────────────────────────────┐
-│         Output Area (Scrollable)       │ ← Lines 0 to height-4
-│  [<<] Assistant: Hello...              │
-│  [=>] Tool: file_reader                │
-│  [<=] Result: ...                      │
-│  ...                                   │
-├────────────────────────────────────────┤ ← Separator
-│ [>>] Input: _                          │ ← Input line
-├────────────────────────────────────────┤ ← Status bar
-│ [Info] Status information              │
-└────────────────────────────────────────┘
-```
-
-## Demo
-
-Run the included demo:
-
-```bash
-ruby examples/ui2_demo.rb
-```
-
-Commands in demo:
-- `/help` - Show help
-- `/clear` - Clear output
-- `/status` - Show status
-- `/tools` - Demo tool rendering
-- `/thinking` - Demo thinking indicator
-- `/scroll` - Generate scrollable content
-- `/quit` - Exit
-
-## Integration with Business Logic
-
-```ruby
-# In your business logic (Agent, Tool, etc.)
-# Just publish events - no UI code!
-
-event_bus.publish(:tool_call, {
-  tool_name: "web_search",
-  formatted_call: "web_search(query: 'Ruby patterns')"
-})
-
-# Simulate work
-result = perform_search(query)
-
-event_bus.publish(:tool_result, {
-  result: "Found 10 results"
-})
-```
-
-The UIController will automatically render these events to the screen.
-
-## Testing
-
-Tests are included for all core components:
-
-```bash
-bundle exec rspec spec/ui2/
++----------------------------------------+
+|         Output Area (Scrollable)       | <- Lines 0 to height-4
+|  [<<] Assistant: Hello...              |
+|  [=>] Tool: file_reader                |
+|  [<=] Result: ...                      |
+|  ...                                   |
++----------------------------------------+ <- Separator
+| [>>] Input: _                          | <- Input line
++----------------------------------------+ <- Session bar
+| Mode: confirm_safes | Tasks: 5 | $0.01 |
++----------------------------------------+
 ```
 
 ## Design Principles
 
-1. **Separation of Concerns**: Business logic never calls UI code directly
-2. **Event-Driven**: All communication through EventBus
+1. **Simplicity**: Agent directly calls UIController methods - no middleware
+2. **Dependency Injection**: Agent receives `ui:` parameter
 3. **Component-Based**: Reusable, testable UI components
 4. **Responsive**: Handles terminal resize and edge cases
-5. **Extensible**: Easy to add new components and events
-
-## Future Enhancements
-
-- Multi-panel layouts (sidebar, tabs)
-- Mouse support
-- Custom themes
-- Syntax highlighting
-- Advanced text formatting (tables, lists)
-- Plugin system for custom components
 
 ## License
 

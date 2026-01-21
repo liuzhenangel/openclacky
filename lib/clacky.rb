@@ -32,12 +32,6 @@ require_relative "clacky/tools/safe_shell"
 require_relative "clacky/tools/trash_manager"
 require_relative "clacky/agent"
 
-# UI components
-require_relative "clacky/ui/banner"
-require_relative "clacky/ui/enhanced_prompt"
-require_relative "clacky/ui/statusbar"
-require_relative "clacky/ui/formatter"
-
 require_relative "clacky/cli"
 
 module Clacky

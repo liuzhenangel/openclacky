@@ -54,18 +54,6 @@ RSpec.describe Clacky::Agent do
       expect(agent.total_cost).to be > 0
     end
 
-    it "triggers event callbacks" do
-      events = []
-
-      agent.run("test") do |event|
-        events << event[:type]
-      end
-
-      expect(events).to include(:on_start)
-      expect(events).to include(:thinking)
-      expect(events).to include(:on_complete)
-    end
-
     it "stops at maximum iterations" do
       # Make LLM always return tool calls
       allow(client).to receive(:send_messages_with_tools)
