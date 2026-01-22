@@ -217,12 +217,23 @@ module Clacky
 
       # Handle window resize
       def handle_resize
+        old_gap_row = @gap_row
+
         screen.update_dimensions
         calculate_layout
-        screen.clear_screen
-        # Reset output position after clear (old content is lost anyway)
-        @output_row = 0
-        render_all
+
+        # Adjust output_row if it exceeds new max
+        max_row = fixed_area_start_row - 1
+        @output_row = [@output_row, max_row].min
+
+        # Clear old fixed area lines
+        ([old_gap_row, 0].max...screen.height).each do |row|
+          screen.move_cursor(row, 0)
+          screen.clear_line
+        end
+
+        render_fixed_areas
+        screen.flush
       end
 
       private
