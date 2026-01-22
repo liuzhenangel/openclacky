@@ -43,12 +43,21 @@ module Clacky
       def recalculate_layout
         @render_mutex.synchronize do
           old_input_row = @input_row
+          old_fixed_start = fixed_area_start_row
           calculate_layout
+          new_fixed_start = fixed_area_start_row
 
-          # If layout changed, need to re-render
+          # If layout changed, clear old fixed area and re-render at new position
           if @input_row != old_input_row
-            screen.clear_screen
-            render_all_internal
+            # Clear old fixed area lines
+            (old_fixed_start...screen.height).each do |row|
+              screen.move_cursor(row, 0)
+              screen.clear_line
+            end
+
+            # Re-render fixed areas at new position
+            render_fixed_areas
+            screen.flush
           end
         end
       end
