@@ -49,14 +49,16 @@ module Clacky
       # Apply caching to messages if enabled
       caching_supported = supports_prompt_caching?(model)
       caching_enabled = enable_caching && caching_supported
-      
+
       # Deep clone messages to avoid modifying the original array
       processed_messages = messages.map { |msg| deep_clone(msg) }
 
-      # Note: cache_control should be set by Agent on system prompt
-      # Client doesn't add additional cache_control to avoid overriding
-      # the system prompt cache breakpoint
-      
+      # Add cache control to messages if caching is enabled
+      # Strategy: Cache system prompt and first user message for stable prefix caching
+      if caching_enabled
+        processed_messages = apply_message_caching(processed_messages)
+      end
+
       body = {
         model: model,
         max_tokens: max_tokens,
@@ -112,6 +114,47 @@ module Clacky
       /x
       
       model_str.match?(cache_pattern)
+    end
+
+    # Apply cache_control to messages for prompt caching
+    # Claude API requires cache_control inside content blocks, not at message level
+    # Strategy: Cache system prompt (stable) for maximum cache hits
+    def apply_message_caching(messages)
+      return messages if messages.empty?
+
+      # Find system message and add cache_control
+      messages.map do |msg|
+        if msg[:role] == "system"
+          add_cache_control_to_message(msg)
+        else
+          msg
+        end
+      end
+    end
+
+    # Convert message content to array format and add cache_control
+    # Claude API format: content: [{type: "text", text: "...", cache_control: {...}}]
+    def add_cache_control_to_message(msg)
+      content = msg[:content]
+
+      # Convert content to array format if it's a string
+      content_array = if content.is_a?(String)
+        [{ type: "text", text: content, cache_control: { type: "ephemeral" } }]
+      elsif content.is_a?(Array)
+        # Content is already an array, add cache_control to the last block
+        content.map.with_index do |block, idx|
+          if idx == content.length - 1
+            block.merge(cache_control: { type: "ephemeral" })
+          else
+            block
+          end
+        end
+      else
+        # Unknown format, return as-is
+        return msg
+      end
+
+      msg.merge(content: content_array)
     end
 
     # Deep clone a hash/array structure (for tool definitions)

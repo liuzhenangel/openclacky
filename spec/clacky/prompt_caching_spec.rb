@@ -32,34 +32,21 @@ RSpec.describe "Prompt Caching Feature" do
       )
     end
     let(:agent) { Clacky::Agent.new(client, config) }
-    
-    it "adds cache_control to system message" do
-      allow(client).to receive(:send_messages_with_tools).and_return(
-        mock_api_response(content: "Test response")
-      )
-      
-      agent.run("Test prompt")
-      
-      # Check that system message has cache_control
-      system_msg = agent.messages.find { |m| m[:role] == "system" }
-      expect(system_msg).not_to be_nil
-      expect(system_msg[:cache_control]).to eq({ type: "ephemeral" })
-    end
-    
+
     it "passes enable_caching flag to client" do
       allow(client).to receive(:send_messages_with_tools).and_return(
         mock_api_response(content: "Test response")
       )
-      
+
       agent.run("Test prompt")
-      
+
       expect(client).to have_received(:send_messages_with_tools).with(
         anything,
         hash_including(enable_caching: true)
       )
     end
   end
-  
+
   describe "Agent without prompt caching" do
     let(:config) do
       Clacky::AgentConfig.new(
@@ -70,15 +57,15 @@ RSpec.describe "Prompt Caching Feature" do
       )
     end
     let(:agent) { Clacky::Agent.new(client, config) }
-    
-    it "does not add cache_control to system message" do
+
+    it "does not add cache_control to system message in agent messages" do
       allow(client).to receive(:send_messages_with_tools).and_return(
         mock_api_response(content: "Test response")
       )
-      
+
       agent.run("Test prompt")
-      
-      # Check that system message does NOT have cache_control
+
+      # Agent messages should not have cache_control (it's applied in client layer)
       system_msg = agent.messages.find { |m| m[:role] == "system" }
       expect(system_msg).not_to be_nil
       expect(system_msg[:cache_control]).to be_nil
@@ -156,8 +143,49 @@ RSpec.describe "Prompt Caching Feature" do
       it "handles immutable objects" do
         original = { str: "test", num: 42, bool: true, nil: nil }
         cloned = client.send(:deep_clone, original)
-        
+
         expect(cloned).to eq(original)
+      end
+    end
+
+    describe "#apply_message_caching" do
+      it "converts system message content to array format with cache_control" do
+        messages = [
+          { role: "system", content: "You are a helpful assistant." },
+          { role: "user", content: "Hello" }
+        ]
+
+        result = client.send(:apply_message_caching, messages)
+
+        system_msg = result.find { |m| m[:role] == "system" }
+        expect(system_msg[:content]).to be_an(Array)
+        expect(system_msg[:content].first[:type]).to eq("text")
+        expect(system_msg[:content].first[:text]).to eq("You are a helpful assistant.")
+        expect(system_msg[:content].first[:cache_control]).to eq({ type: "ephemeral" })
+      end
+
+      it "does not modify user messages" do
+        messages = [
+          { role: "system", content: "System prompt" },
+          { role: "user", content: "User message" }
+        ]
+
+        result = client.send(:apply_message_caching, messages)
+
+        user_msg = result.find { |m| m[:role] == "user" }
+        expect(user_msg[:content]).to eq("User message")
+        expect(user_msg[:cache_control]).to be_nil
+      end
+
+      it "handles array content format" do
+        messages = [
+          { role: "system", content: [{ type: "text", text: "System prompt" }] }
+        ]
+
+        result = client.send(:apply_message_caching, messages)
+
+        system_msg = result.first
+        expect(system_msg[:content].first[:cache_control]).to eq({ type: "ephemeral" })
       end
     end
   end

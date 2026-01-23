@@ -141,10 +141,9 @@ module Clacky
         system_prompt = build_system_prompt
         system_message = { role: "system", content: system_prompt }
 
-        # Enable caching for system prompt if configured and model supports it
-        if @config.enable_prompt_caching
-          system_message[:cache_control] = { type: "ephemeral" }
-        end
+        # Note: Don't set cache_control on system prompt
+        # System prompt is usually < 1024 tokens (minimum for caching)
+        # Cache control will be set on tools and conversation history instead
 
         @messages << system_message
       end
@@ -718,13 +717,7 @@ module Clacky
       summary = summarize_messages(messages_to_compress)
 
       # Rebuild messages array: [system, summary, recent_messages]
-      # Preserve cache_control on system message if it exists
       rebuilt_messages = [system_msg, summary, *recent_messages].compact
-
-      # Re-apply cache control to system message if caching is enabled
-      if @config.enable_prompt_caching && rebuilt_messages.first&.dig(:role) == "system"
-        rebuilt_messages.first[:cache_control] = { type: "ephemeral" }
-      end
 
       @messages = rebuilt_messages
 
