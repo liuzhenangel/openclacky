@@ -157,33 +157,33 @@ module Clacky
           # Images
           @images.each_with_index do |img_path, idx|
             move_cursor(current_row, 0)
-            clear_line
             filename = File.basename(img_path)
             filesize = File.exist?(img_path) ? format_filesize(File.size(img_path)) : "N/A"
-            print @pastel.dim("[Image #{idx + 1}] #{filename} (#{filesize}) (Ctrl+D to delete)")
+            content = @pastel.dim("[Image #{idx + 1}] #{filename} (#{filesize}) (Ctrl+D to delete)")
+            print_with_padding(content)
             current_row += 1
           end
 
           # Input lines
           @lines.each_with_index do |line, idx|
             move_cursor(current_row, 0)
-            clear_line
 
-            if idx == 0
+            content = if idx == 0
               prompt_text = theme.format_symbol(:user) + " "
               if idx == @line_index
-                print "#{prompt_text}#{render_line_with_cursor(line)}"
+                "#{prompt_text}#{render_line_with_cursor(line)}"
               else
-                print "#{prompt_text}#{theme.format_text(line, :user)}"
+                "#{prompt_text}#{theme.format_text(line, :user)}"
               end
             else
               indent = " " * prompt.length
               if idx == @line_index
-                print "#{indent}#{render_line_with_cursor(line)}"
+                "#{indent}#{render_line_with_cursor(line)}"
               else
-                print "#{indent}#{theme.format_text(line, :user)}"
+                "#{indent}#{theme.format_text(line, :user)}"
               end
             end
+            print_with_padding(content)
             current_row += 1
           end
 
@@ -194,8 +194,8 @@ module Clacky
           # Tips bar (if any)
           if @tips_message
             move_cursor(current_row, 0)
-            clear_line
-            print format_tips(@tips_message, @tips_type)
+            content = format_tips(@tips_message, @tips_type)
+            print_with_padding(content)
             current_row += 1
           end
 
@@ -382,6 +382,21 @@ module Clacky
         end
 
         private
+
+        # Print content and pad with spaces to clear any remaining characters from previous render
+        # This avoids flickering from clear_line while ensuring old content is erased
+        def print_with_padding(content)
+          # Calculate visible width (strip ANSI codes for width calculation)
+          visible_content = content.gsub(/\e\[[0-9;]*m/, '')
+          visible_width = calculate_display_width(visible_content)
+          
+          # Print content
+          print content
+          
+          # Pad with spaces if needed to clear old content
+          remaining = @width - visible_width
+          print " " * remaining if remaining > 0
+        end
 
         def handle_enter
           text = current_value.strip
@@ -646,17 +661,17 @@ module Clacky
 
         def render_separator(row)
           move_cursor(row, 0)
-          clear_line
-          print @pastel.dim("─" * @width)
+          content = @pastel.dim("─" * @width)
+          print_with_padding(content)
         end
 
         def render_sessionbar(row)
           move_cursor(row, 0)
-          clear_line
 
           # If no sessionbar info, just render a separator
           unless @sessionbar_info[:working_dir]
-            print @pastel.dim("─" * @width)
+            content = @pastel.dim("─" * @width)
+            print_with_padding(content)
             return
           end
 
@@ -688,7 +703,7 @@ module Clacky
           parts << @pastel.yellow(cost_display)
 
           session_line = " " + parts.join(separator)
-          print session_line
+          print_with_padding(session_line)
         end
 
         def shorten_path(path)
