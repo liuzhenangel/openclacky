@@ -143,6 +143,23 @@ module Clacky
         screen.show_cursor
       end
 
+      # Clear output area (for /clear command)
+      def clear_output
+        @render_mutex.synchronize do
+          # Clear all lines in output area (from 0 to fixed_area_start - 1)
+          max_output_row = fixed_area_start_row
+          (0...max_output_row).each do |row|
+            screen.move_cursor(row, 0)
+            screen.clear_line
+          end
+          # Reset output row position to start
+          @output_row = 0
+          # Re-render fixed areas to ensure they stay in place
+          render_fixed_areas
+          screen.flush
+        end
+      end
+
       # Append content to output area
       # Track current row, scroll when reaching fixed area
       # @param content [String] Content to append

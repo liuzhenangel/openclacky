@@ -33,6 +33,8 @@ module Clacky
           @last_ctrl_c_time = nil
           @tips_message = nil
           @tips_type = :info
+          @tips_timer = nil
+          @last_render_row = nil
 
           # Paused state - when InlineInput is active
           @paused = false
@@ -136,6 +138,7 @@ module Clacky
 
         def render(start_row:, width: nil)
           @width = width || TTY::Screen.width
+          @last_render_row = start_row  # Save for tips auto-clear
 
           # When paused, don't render anything (InlineInput is active)
           return if @paused
@@ -212,11 +215,32 @@ module Clacky
         end
 
         def set_tips(message, type: :info)
+          # Cancel existing timer if any
+          if @tips_timer&.alive?
+            @tips_timer.kill
+          end
+
           @tips_message = message
           @tips_type = type
+
+          # Auto-clear tips after 2 seconds
+          @tips_timer = Thread.new do
+            sleep 2
+            # Clear tips from state and screen
+            @tips_message = nil
+            # Tips row: start_row + session_bar(1) + separator(1) + images + lines + separator(1)
+            tips_row = @last_render_row + 2 + @images.size + @lines.size + 1
+            move_cursor(tips_row, 0)
+            clear_line
+            flush
+          end
         end
 
         def clear_tips
+          # Cancel timer if any
+          if @tips_timer&.alive?
+            @tips_timer.kill
+          end
           @tips_message = nil
         end
 
@@ -367,10 +391,12 @@ module Clacky
             when '/clear'
               clear
               return { action: :clear_output }
+            when '/help'
+              return { action: :help }
             when '/exit', '/quit'
               return { action: :exit }
             else
-              set_tips("Unknown command: #{text} (Available: /clear, /exit)", type: :warning)
+              set_tips("Unknown command: #{text} (Available: /clear, /help, /exit)", type: :warning)
               return { action: nil }
             end
           elsif text == 'exit' || text == 'quit'

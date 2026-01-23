@@ -554,8 +554,10 @@ module Clacky
           # Notify CLI to handle interrupt (stop agent or exit)
           @interrupt_callback&.call(input_was_empty: input_was_empty)
         when :clear_output
-          @output_area.clear
-          @layout.render_all
+          # Clear the screen
+          @layout.clear_output
+          # Notify the callback to reset session/agent
+          @input_callback&.call("/clear", [])
         when :scroll_up
           @layout.scroll_output_up
         when :scroll_down
