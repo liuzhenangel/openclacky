@@ -77,6 +77,7 @@ module Clacky
       @previous_total_tokens = 0  # Track tokens from previous iteration for delta calculation
       @interrupted = false  # Flag for user interrupt
       @ui = ui  # UIController for direct UI interaction
+      @debug_logs = []  # Debug logs for troubleshooting
 
       # Register built-in tools
       register_builtin_tools
@@ -249,7 +250,8 @@ module Clacky
         total_cost_usd: @total_cost.round(4),
         duration_seconds: @start_time ? (Time.now - @start_time).round(2) : 0,
         last_status: status.to_s,
-        cache_stats: @cache_stats
+        cache_stats: @cache_stats,
+        debug_logs: @debug_logs
       }
 
       # Add error message if status is error
@@ -1012,6 +1014,16 @@ module Clacky
 
       # Check if old_string exists in file
       unless file_content.include?(old_string)
+        # Log debug info for troubleshooting
+        @debug_logs << {
+          timestamp: Time.now.iso8601,
+          event: "edit_preview_failed",
+          path: path,
+          looking_for: old_string[0..500],
+          file_content_preview: file_content[0..1000],
+          file_size: file_content.length
+        }
+
         @ui&.show_file_error("String to replace not found in file")
         @ui&.show_file_error("Looking for (first 100 chars):")
         @ui&.show_file_error(old_string[0..100].inspect)
