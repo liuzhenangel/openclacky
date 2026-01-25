@@ -48,14 +48,14 @@ module Clacky
         end
       end
 
-      def search_duckduckgo(query, max_results)
+      private def search_duckduckgo(query, max_results)
         # DuckDuckGo HTML search endpoint
         encoded_query = CGI.escape(query)
         url = URI("https://html.duckduckgo.com/html/?q=#{encoded_query}")
 
         # Make request with user agent
         request = Net::HTTP::Get.new(url)
-        request["User-Agent"] = "Mozilla/5.0 (compatible; Clacky/1.0)"
+        request["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
         response = Net::HTTP.start(url.hostname, url.port, use_ssl: true, read_timeout: 10) do |http|
           http.request(request)
@@ -78,45 +78,57 @@ module Clacky
         ]
       end
 
-      def parse_duckduckgo_html(html, max_results)
+      private def parse_duckduckgo_html(html, max_results)
         results = []
 
-        # Simple regex-based parsing (not perfect but works for basic cases)
-        # Look for result blocks in DuckDuckGo HTML
-        html.scan(%r{<div class="result__body">.*?</div>}m).each do |block|
+        # Ensure HTML is UTF-8 encoded
+        html = html.force_encoding('UTF-8') unless html.encoding == Encoding::UTF_8
+
+        # Extract all result links and snippets
+        # Pattern: <a class="result__a" href="//duckduckgo.com/l/?uddg=ENCODED_URL...">TITLE</a>
+        links = html.scan(%r{<a[^>]*class="result__a"[^>]*href="//duckduckgo\.com/l/\?uddg=([^"&]+)[^"]*"[^>]*>(.*?)</a>}m)
+        
+        # Pattern: <a class="result__snippet">SNIPPET</a>
+        snippets = html.scan(%r{<a[^>]*class="result__snippet"[^>]*>(.*?)</a>}m)
+
+        # Combine links and snippets
+        links.each_with_index do |link_data, index|
           break if results.length >= max_results
 
-          # Extract title and URL
-          if block =~ %r{<a.*?href="//duckduckgo\.com/l/\?uddg=([^"&]+).*?".*?>(.*?)</a>}m
-            url = CGI.unescape($1)
-            title = $2.gsub(/<[^>]+>/, "").strip
+          url = CGI.unescape(link_data[0]).force_encoding('UTF-8')
+          title = link_data[1].gsub(/<[^>]+>/, "").strip
+          title = CGI.unescapeHTML(title) if title.include?("&")
 
-            # Extract snippet
-            snippet = ""
-            if block =~ %r{<a class="result__snippet".*?>(.*?)</a>}m
-              snippet = $1.gsub(/<[^>]+>/, "").strip
-            end
-
-            results << {
-              title: title,
-              url: url,
-              snippet: snippet
-            }
+          snippet = ""
+          if snippets[index]
+            snippet = snippets[index][0].gsub(/<[^>]+>/, "").strip
+            snippet = CGI.unescapeHTML(snippet) if snippet.include?("&")
           end
+
+          results << {
+            title: title,
+            url: url,
+            snippet: snippet
+          }
         end
 
         # If parsing failed, provide a fallback
         if results.empty?
           results << {
             title: "Web search results",
-            url: "https://duckduckgo.com/?q=#{CGI.escape(query)}",
-            snippet: "Could not parse search results. Visit the URL to see results."
+            url: "https://duckduckgo.com/",
+            snippet: "Could not parse search results. Please try again."
           }
         end
 
         results
-      rescue StandardError
-        []
+      rescue StandardError => e
+        # Return fallback on error
+        [{
+          title: "Web search error",
+          url: "https://duckduckgo.com/",
+          snippet: "Error parsing results: #{e.message}"
+        }]
       end
 
       def format_call(args)
