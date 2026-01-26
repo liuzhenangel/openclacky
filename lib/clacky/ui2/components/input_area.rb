@@ -72,7 +72,20 @@ module Clacky
           height = 1  # Session bar (top)
           height += 1  # Separator after session bar
           height += @images.size
-          height += @lines.size
+          
+          # Calculate height considering wrapped lines
+          @lines.each_with_index do |line, idx|
+            prefix = if idx == 0
+              prompt
+            else
+              " " * prompt.length
+            end
+            prefix_width = calculate_display_width(strip_ansi_codes(prefix))
+            available_width = [@width - prefix_width, 20].max  # At least 20 chars
+            wrapped_segments = wrap_line(line, available_width)
+            height += wrapped_segments.size
+          end
+          
           height += 1  # Bottom separator
           height += 1 if @tips_message
           height
@@ -172,27 +185,49 @@ module Clacky
             current_row += 1
           end
 
-          # Input lines
+          # Input lines with auto-wrap support
           @lines.each_with_index do |line, idx|
-            move_cursor(current_row, 0)
-
-            content = if idx == 0
+            prefix = if idx == 0
               prompt_text = theme.format_symbol(:user) + " "
-              if idx == @line_index
-                "#{prompt_text}#{render_line_with_cursor(line)}"
-              else
-                "#{prompt_text}#{theme.format_text(line, :user)}"
-              end
+              prompt_text
             else
-              indent = " " * prompt.length
-              if idx == @line_index
-                "#{indent}#{render_line_with_cursor(line)}"
-              else
-                "#{indent}#{theme.format_text(line, :user)}"
-              end
+              " " * prompt.length
             end
-            print_with_padding(content)
-            current_row += 1
+
+            # Calculate available width for text (excluding prefix)
+            prefix_width = calculate_display_width(strip_ansi_codes(prefix))
+            available_width = @width - prefix_width
+
+            # Wrap line if needed
+            wrapped_segments = wrap_line(line, available_width)
+
+            wrapped_segments.each_with_index do |segment_info, wrap_idx|
+              move_cursor(current_row, 0)
+
+              segment_text = segment_info[:text]
+              segment_start = segment_info[:start]
+              segment_end = segment_info[:end]
+
+              content = if wrap_idx == 0
+                # First wrapped line includes prefix
+                if idx == @line_index
+                  "#{prefix}#{render_line_segment_with_cursor(line, segment_start, segment_end)}"
+                else
+                  "#{prefix}#{theme.format_text(segment_text, :user)}"
+                end
+              else
+                # Continuation lines have indent matching prefix width
+                continuation_indent = " " * prefix_width
+                if idx == @line_index
+                  "#{continuation_indent}#{render_line_segment_with_cursor(line, segment_start, segment_end)}"
+                else
+                  "#{continuation_indent}#{theme.format_text(segment_text, :user)}"
+                end
+              end
+              
+              print_with_padding(content)
+              current_row += 1
+            end
           end
 
           # Bottom separator
@@ -213,13 +248,59 @@ module Clacky
         end
 
         def position_cursor(start_row)
-          # Cursor is in input area: start_row + session_bar(1) + separator(1) + images + line_index
-          cursor_row = start_row + 2 + @images.size + @line_index
-          # Calculate display width of text before cursor (considering multi-byte characters like Chinese)
-          chars = current_line.chars
-          text_before_cursor = chars[0...@cursor_position].join
-          display_width = calculate_display_width(text_before_cursor)
-          cursor_col = prompt.length + display_width
+          # Calculate which wrapped line the cursor is on
+          cursor_row = start_row + 2 + @images.size  # session_bar + separator + images
+          
+          # Add rows for lines before current line
+          @lines[0...@line_index].each_with_index do |line, idx|
+            prefix = if idx == 0
+              prompt
+            else
+              " " * prompt.length
+            end
+            prefix_width = calculate_display_width(strip_ansi_codes(prefix))
+            available_width = [@width - prefix_width, 20].max
+            wrapped_segments = wrap_line(line, available_width)
+            cursor_row += wrapped_segments.size
+          end
+          
+          # Find which wrapped segment of current line contains cursor
+          current = current_line
+          prefix = if @line_index == 0
+            prompt
+          else
+            " " * prompt.length
+          end
+          prefix_width = calculate_display_width(strip_ansi_codes(prefix))
+          available_width = [@width - prefix_width, 20].max
+          wrapped_segments = wrap_line(current, available_width)
+          
+          # Find cursor segment and position within segment
+          cursor_segment_idx = 0
+          cursor_pos_in_segment = @cursor_position
+          
+          wrapped_segments.each_with_index do |segment, idx|
+            if @cursor_position >= segment[:start] && @cursor_position < segment[:end]
+              cursor_segment_idx = idx
+              cursor_pos_in_segment = @cursor_position - segment[:start]
+              break
+            elsif @cursor_position >= segment[:end] && idx == wrapped_segments.size - 1
+              # Cursor at very end
+              cursor_segment_idx = idx
+              cursor_pos_in_segment = segment[:end] - segment[:start]
+              break
+            end
+          end
+          
+          cursor_row += cursor_segment_idx
+          
+          # Calculate display width of text before cursor in this segment
+          chars = current.chars
+          segment_start = wrapped_segments[cursor_segment_idx][:start]
+          text_in_segment_before_cursor = chars[segment_start...(segment_start + cursor_pos_in_segment)].join
+          display_width = calculate_display_width(text_in_segment_before_cursor)
+          
+          cursor_col = prefix_width + display_width
           move_cursor(cursor_row, cursor_col)
         end
 
@@ -390,6 +471,84 @@ module Clacky
         end
 
         private
+
+        # Wrap a line into multiple segments based on available width
+        # Considers display width of characters (multi-byte characters like Chinese)
+        # @param line [String] The line to wrap
+        # @param max_width [Integer] Maximum display width per wrapped line
+        # @return [Array<Hash>] Array of segment info: { text: String, start: Integer, end: Integer }
+        def wrap_line(line, max_width)
+          return [{ text: "", start: 0, end: 0 }] if line.empty?
+          return [{ text: line, start: 0, end: line.length }] if max_width <= 0
+
+          segments = []
+          chars = line.chars
+          segment_start = 0
+          current_width = 0
+          current_end = 0
+
+          chars.each_with_index do |char, idx|
+            char_width = char_display_width(char)
+            
+            # If adding this character exceeds max width, complete current segment
+            if current_width + char_width > max_width && current_end > segment_start
+              segments << {
+                text: chars[segment_start...current_end].join,
+                start: segment_start,
+                end: current_end
+              }
+              segment_start = idx
+              current_end = idx + 1
+              current_width = char_width
+            else
+              current_end = idx + 1
+              current_width += char_width
+            end
+          end
+
+          # Add the last segment
+          if current_end > segment_start
+            segments << {
+              text: chars[segment_start...current_end].join,
+              start: segment_start,
+              end: current_end
+            }
+          end
+          
+          segments.empty? ? [{ text: "", start: 0, end: 0 }] : segments
+        end
+
+        # Calculate display width of a single character
+        # @param char [String] Single character
+        # @return [Integer] Display width (1 or 2)
+        def char_display_width(char)
+          code = char.ord
+          # East Asian Wide and Fullwidth characters take 2 columns
+          if (code >= 0x1100 && code <= 0x115F) ||
+             (code >= 0x2329 && code <= 0x232A) ||
+             (code >= 0x2E80 && code <= 0x303E) ||
+             (code >= 0x3040 && code <= 0xA4CF) ||
+             (code >= 0xAC00 && code <= 0xD7A3) ||
+             (code >= 0xF900 && code <= 0xFAFF) ||
+             (code >= 0xFE10 && code <= 0xFE19) ||
+             (code >= 0xFE30 && code <= 0xFE6F) ||
+             (code >= 0xFF00 && code <= 0xFF60) ||
+             (code >= 0xFFE0 && code <= 0xFFE6) ||
+             (code >= 0x1F300 && code <= 0x1F9FF) ||
+             (code >= 0x20000 && code <= 0x2FFFD) ||
+             (code >= 0x30000 && code <= 0x3FFFD)
+            2
+          else
+            1
+          end
+        end
+
+        # Strip ANSI escape codes from a string
+        # @param text [String] Text with ANSI codes
+        # @return [String] Text without ANSI codes
+        def strip_ansi_codes(text)
+          text.gsub(/\e\[[0-9;]*m/, '')
+        end
 
         # Print content and pad with spaces to clear any remaining characters from previous render
         # This avoids flickering from clear_line while ensuring old content is erased
@@ -665,6 +824,34 @@ module Clacky
           after_cursor = chars[(@cursor_position + 1)..-1]&.join || ""
 
           "#{@pastel.white(before_cursor)}#{@pastel.on_white(@pastel.black(cursor_char))}#{@pastel.white(after_cursor)}"
+        end
+
+        # Render a segment of a line with cursor if cursor is in this segment
+        # @param line [String] Full line text
+        # @param segment_start [Integer] Start position of segment in line (char index)
+        # @param segment_end [Integer] End position of segment in line (char index)
+        # @return [String] Rendered segment with cursor if applicable
+        def render_line_segment_with_cursor(line, segment_start, segment_end)
+          chars = line.chars
+          segment_chars = chars[segment_start...segment_end]
+          
+          # Check if cursor is in this segment
+          if @cursor_position >= segment_start && @cursor_position < segment_end
+            # Cursor is in this segment
+            cursor_pos_in_segment = @cursor_position - segment_start
+            before_cursor = segment_chars[0...cursor_pos_in_segment].join
+            cursor_char = segment_chars[cursor_pos_in_segment] || " "
+            after_cursor = segment_chars[(cursor_pos_in_segment + 1)..-1]&.join || ""
+            
+            "#{@pastel.white(before_cursor)}#{@pastel.on_white(@pastel.black(cursor_char))}#{@pastel.white(after_cursor)}"
+          elsif @cursor_position == segment_end && segment_end == line.length
+            # Cursor is at the very end of the line, show it in last segment
+            segment_text = segment_chars.join
+            "#{@pastel.white(segment_text)}#{@pastel.on_white(@pastel.black(' '))}"
+          else
+            # Cursor is not in this segment, just format normally
+            theme.format_text(segment_chars.join, :user)
+          end
         end
 
         def render_separator(row)

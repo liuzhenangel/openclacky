@@ -40,8 +40,8 @@ module Clacky
           # Fetch the web page
           response = fetch_url(uri)
 
-          # Extract content
-          content = response.body
+          # Extract content and force UTF-8 encoding at the source
+          content = response.body.force_encoding('UTF-8').scrub('?')
           content_type = response["content-type"] || ""
 
           # Parse HTML if it's an HTML page

@@ -107,9 +107,26 @@ module Clacky
         end
 
         # Render inline input with prompt and cursor
-        # @return [String] Rendered line
+        # @return [String] Rendered line (may wrap to multiple lines)
         def render
-          "#{@prompt}#{render_line_with_cursor}"
+          line = render_line_with_cursor
+          full_text = "#{@prompt}#{line}"
+          
+          # Calculate terminal width and check if wrapping is needed
+          width = TTY::Screen.width
+          visible_text = strip_ansi_codes(full_text)
+          display_width = calculate_display_width(visible_text)
+          
+          # If no wrapping needed, return as is
+          return full_text if display_width <= width
+          
+          # Otherwise, wrap the input (prompt on first line, continuation indented)
+          prompt_width = calculate_display_width(strip_ansi_codes(@prompt))
+          available_width = width - prompt_width
+          
+          # For simplicity, just return full text and let terminal handle wrapping
+          # InlineInput is typically short, so natural wrapping should be fine
+          full_text
         end
 
         # Get cursor column position
