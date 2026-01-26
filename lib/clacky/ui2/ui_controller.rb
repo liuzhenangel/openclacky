@@ -349,11 +349,16 @@ module Clacky
         return if iterations <= 5
 
         cache_tokens = cache_stats&.dig(:cache_read_input_tokens)
+        cache_requests = cache_stats&.dig(:total_requests)
+        cache_hits = cache_stats&.dig(:cache_hit_requests)
+        
         output = @renderer.render_task_complete(
           iterations: iterations,
           cost: cost,
           duration: duration,
-          cache_tokens: cache_tokens
+          cache_tokens: cache_tokens,
+          cache_requests: cache_requests,
+          cache_hits: cache_hits
         )
         append_output(output)
       end

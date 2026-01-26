@@ -56,18 +56,31 @@ module Clacky
         # @param cost [Float] Cost in USD
         # @param duration [Float] Duration in seconds
         # @param cache_tokens [Integer] Cache read tokens
+        # @param cache_requests [Integer] Total cache requests count
+        # @param cache_hits [Integer] Cache hit requests count
         # @return [String] Formatted completion summary
-        def render_task_complete(iterations:, cost:, duration: nil, cache_tokens: nil)
-          parts = []
-          parts << "Iterations: #{iterations}"
-          parts << "Cost: $#{cost.round(4)}"
-          parts << "Duration: #{duration.round(1)}s" if duration
-          parts << "Cache: #{cache_tokens} tokens" if cache_tokens && cache_tokens > 0
-
+        def render_task_complete(iterations:, cost:, duration: nil, cache_tokens: nil, cache_requests: nil, cache_hits: nil)
           lines = []
           lines << ""
           lines << @pastel.dim("─" * 60)
-          lines << render_success(parts.join(" │ "))
+          lines << render_success("Task Complete")
+          lines << ""
+          
+          # Display each stat on a separate line
+          lines << "  Iterations: #{iterations}"
+          lines << "  Cost: $#{cost.round(4)}"
+          lines << "  Duration: #{duration.round(1)}s" if duration
+          
+          # Display cache information if available
+          if cache_tokens && cache_tokens > 0
+            lines << "  Cache Tokens: #{cache_tokens} tokens"
+          end
+          
+          if cache_requests && cache_requests > 0
+            hit_rate = cache_hits > 0 ? ((cache_hits.to_f / cache_requests) * 100).round(1) : 0
+            lines << "  Cache Requests: #{cache_requests} (#{cache_hits} hits, #{hit_rate}% hit rate)"
+          end
+          
           lines.join("\n")
         end
       end
