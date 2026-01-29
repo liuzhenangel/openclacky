@@ -28,7 +28,8 @@ module Clacky
           @total_count = @todos.size
 
           # Height: 1 line for header + min(pending_count, MAX_DISPLAY_TASKS) lines for tasks
-          if @pending_todos.empty? && @completed_count == 0
+          # Hide TODO area when there are no pending tasks
+          if @pending_todos.empty?
             @height = 0
           else
             display_count = [@pending_todos.size, MAX_DISPLAY_TASKS].min

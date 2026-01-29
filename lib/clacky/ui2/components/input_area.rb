@@ -888,15 +888,15 @@ module Clacky
 
           # Workspace status with animation
           if @sessionbar_info[:status]
-            status_indicator = get_status_indicator(@sessionbar_info[:status])
-            status_theme_key = status_theme_key_for(@sessionbar_info[:status])
-            parts << "#{status_indicator} #{theme.format_text(@sessionbar_info[:status], status_theme_key)}"
+            status_color = status_color_for(@sessionbar_info[:status])
+            status_indicator = get_status_indicator(@sessionbar_info[:status], status_color)
+            parts << "#{status_indicator} #{@pastel.public_send(status_color, @sessionbar_info[:status])}"
           end
 
           # Working directory (shortened if too long)
           if @sessionbar_info[:working_dir]
             dir_display = shorten_path(@sessionbar_info[:working_dir])
-            parts << @pastel.bright_cyan(dir_display)
+            parts << @pastel.dim(@pastel.cyan(dir_display))
           end
 
           # Permission mode
@@ -907,15 +907,15 @@ module Clacky
 
           # Model
           if @sessionbar_info[:model]
-            parts << @pastel.bright_white(@sessionbar_info[:model])
+            parts << @pastel.dim(@pastel.white(@sessionbar_info[:model]))
           end
 
           # Tasks count
-          parts << @pastel.yellow("#{@sessionbar_info[:tasks]} tasks")
+          parts << @pastel.dim(@pastel.white("#{@sessionbar_info[:tasks]} tasks"))
 
           # Cost
           cost_display = format("$%.1f", @sessionbar_info[:cost])
-          parts << @pastel.yellow(cost_display)
+          parts << @pastel.dim(@pastel.white(cost_display))
 
           session_line = " " + parts.join(separator)
           print_with_padding(session_line)
@@ -946,30 +946,30 @@ module Clacky
         def mode_color_for(mode)
           case mode.to_s
           when /auto_approve/
-            :bright_magenta
+            :magenta
           when /confirm_safes/
-            :bright_yellow
+            :cyan
           when /confirm_edits/
-            :bright_green
+            :green
           when /plan_only/
-            :bright_blue
+            :blue
           else
             :white
           end
         end
 
-        def status_theme_key_for(status)
+        def status_color_for(status)
           case status.to_s.downcase
           when 'idle'
-            :info  # Use info color for idle state
+            :cyan  # Use darker cyan for idle state
           when 'working'
-            :progress  # Use progress color for working state
+            :yellow  # Use yellow to highlight working state
           else
-            :info
+            :cyan
           end
         end
 
-        def get_status_indicator(status)
+        def get_status_indicator(status, color)
           case status.to_s.downcase
           when 'working'
             # Update animation frame if enough time has passed
@@ -978,9 +978,9 @@ module Clacky
               @animation_frame = (@animation_frame + 1) % @working_frames.length
               @last_animation_update = now
             end
-            @working_frames[@animation_frame]
+            @pastel.public_send(color, @working_frames[@animation_frame])
           else
-            "●"  # Idle indicator
+            @pastel.public_send(color, "●")  # Idle indicator with same color as text
           end
         end
 
