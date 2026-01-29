@@ -957,7 +957,8 @@ module Clacky
 
       {
         role: "user",
-        content: "[SYSTEM] " + summary_text
+        content: "[SYSTEM] " + summary_text,
+        system_injected: true
       }
     end
 

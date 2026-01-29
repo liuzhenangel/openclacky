@@ -44,10 +44,11 @@ module Clacky
         result
       end
 
-      # Validate required parameters
+      # Validate required parameters and filter unknown parameters
       def self.validate_required_params(call, args, tool_registry)
         tool = tool_registry.get(call[:name])
         required = tool.parameters&.dig(:required) || []
+        properties = tool.parameters&.dig(:properties) || {}
 
         missing = required.reject { |param|
           args.key?(param.to_sym) || args.key?(param.to_s)
@@ -57,7 +58,11 @@ module Clacky
           raise MissingRequiredParamsError.new(call[:name], missing, args.keys)
         end
 
-        args
+        # Filter out unknown parameters to prevent errors when LLM sends extra arguments
+        known_params = properties.keys.map(&:to_sym) + properties.keys.map(&:to_s)
+        filtered_args = args.select { |key, _| known_params.include?(key) }
+
+        filtered_args
       end
 
       # Generate error message with tool definition

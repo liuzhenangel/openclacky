@@ -313,8 +313,27 @@ module Clacky
       # Show assistant message
       # @param content [String] Message content
       def show_assistant_message(content)
-        output = @renderer.render_assistant_message(content)
+        # Filter out thinking tags from models like MiniMax M2.1 that use <think>...</think>
+        filtered_content = filter_thinking_tags(content)
+        return if filtered_content.nil? || filtered_content.strip.empty?
+
+        output = @renderer.render_assistant_message(filtered_content)
         append_output(output)
+      end
+
+      # Filter out thinking tags from content
+      # Some models (e.g., MiniMax M2.1) wrap their reasoning in <think>...</think> tags
+      # @param content [String] Raw content from model
+      # @return [String] Content with thinking tags removed
+      def filter_thinking_tags(content)
+        return content if content.nil?
+
+        # Remove <think>...</think> blocks (multiline, case-insensitive)
+        # Also handles variations like <thinking>...</thinking>
+        filtered = content.gsub(%r{<think(?:ing)?>\s*.*?\s*</think(?:ing)?>}mi, '')
+
+        # Clean up extra whitespace left behind
+        filtered.gsub(/\n{3,}/, "\n\n").strip
       end
 
       # Show tool call
@@ -564,9 +583,46 @@ module Clacky
 
         diff = Diffy::Diff.new(old_content, new_content, context: 3)
         all_lines = diff.to_s(:color).lines
-        display_lines = all_lines.first(max_lines)
+        plain_lines = diff.to_s.lines
 
-        display_lines.each { |line| append_output(line.chomp) }
+        # Add line numbers to diff output
+        old_line_num = 0
+        new_line_num = 0
+
+        numbered_lines = all_lines.each_with_index.map do |line, index|
+          # Use plain text to detect line type (remove ANSI codes)
+          plain_line = plain_lines[index]&.chomp || line.gsub(/\e\[[0-9;]*m/, '').chomp
+
+          # Determine line type and number
+          if plain_line.start_with?('+')
+            new_line_num += 1
+            # Addition: show only new line number
+            sprintf("%4s %4d | %s", "", new_line_num, line)
+          elsif plain_line.start_with?('-')
+            old_line_num += 1
+            # Deletion: show only old line number
+            sprintf("%4d %4s | %s", old_line_num, "", line)
+          elsif plain_line.start_with?(' ')
+            # Context: show both line numbers
+            old_line_num += 1
+            new_line_num += 1
+            sprintf("%4d %4d | %s", old_line_num, new_line_num, line)
+          elsif plain_line.start_with?('@@')
+            # Diff header: extract line numbers from @@ -old_start,old_count +new_start,new_count @@
+            if plain_line =~ /@@ -(\d+)(?:,\d+)? (\d+)(?:,\d+)? @@/
+              old_line_num = $1.to_i - 1
+              new_line_num = $2.to_i - 1
+            end
+            sprintf("%4s %4s | %s", "", "", line)
+          else
+            # Other lines (headers, etc.)
+            sprintf("%4s %4s | %s", "", "", line)
+          end
+        end
+
+        display_lines = numbered_lines.first(max_lines)
+        display_lines.each { |line| append_output(line) }
+
         if all_lines.size > max_lines
           append_output("\n... (#{all_lines.size - max_lines} more lines, diff truncated)")
         end
