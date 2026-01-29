@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-01-29
+
+### Added
+- User tips for better guidance and feedback
+- Batch TODO operations for improved task management
+- Markdown output support for better formatted responses
+- Text style customization options
+
+### Improved
+- Tool execution with slow progress indicators for long-running operations
+- Progress UI refinements for better visual feedback
+- Session restore now shows recent messages for context
+- TODO area UI enhancements with auto-hide when all tasks completed
+- Work status bar styling improvements
+- Text wrapping when moving input to output area
+- Safe shell output improvements for better readability
+- Task info display optimization (only show essential information)
+- TODO list cleanup and organization
+
+### Fixed
+- Double paste bug causing duplicate input
+- Double error message display issue
+- TODO clear functionality
+- RSpec test hanging issues
+
+### Removed
+- Tool emoji from output for cleaner display
+
 ## [0.6.0] - 2026-01-28
 
 ### Added
