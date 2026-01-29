@@ -137,6 +137,16 @@ module Clacky
       @start_time = Time.now
       @task_cost_source = :estimated  # Reset for new task
       @previous_total_tokens = 0  # Reset token tracking for new task
+      @task_start_iterations = @iterations  # Track starting iterations for this task
+      @task_start_cost = @total_cost  # Track starting cost for this task
+      
+      # Track cache stats for current task
+      @task_cache_stats = {
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        total_requests: 0,
+        cache_hit_requests: 0
+      }
 
       # Add system prompt as the first message if this is the first run
       if @messages.empty?
@@ -637,7 +647,7 @@ module Clacky
       # Display token usage statistics for this iteration
       display_iteration_tokens(usage, iteration_cost)
 
-      # Track cache usage statistics
+      # Track cache usage statistics (global)
       @cache_stats[:total_requests] += 1
 
       if usage[:cache_creation_input_tokens]
@@ -654,6 +664,20 @@ module Clacky
         @cache_stats[:raw_api_usage_samples] ||= []
         @cache_stats[:raw_api_usage_samples] << raw_api_usage
         @cache_stats[:raw_api_usage_samples] = @cache_stats[:raw_api_usage_samples].last(3)
+      end
+      
+      # Track cache usage for current task
+      if @task_cache_stats
+        @task_cache_stats[:total_requests] += 1
+        
+        if usage[:cache_creation_input_tokens]
+          @task_cache_stats[:cache_creation_input_tokens] += usage[:cache_creation_input_tokens]
+        end
+        
+        if usage[:cache_read_input_tokens]
+          @task_cache_stats[:cache_read_input_tokens] += usage[:cache_read_input_tokens]
+          @task_cache_stats[:cache_hit_requests] += 1
+        end
       end
     end
 
@@ -1079,14 +1103,20 @@ module Clacky
     end
 
     def build_result(status, error: nil)
+      # Calculate iterations for current task only
+      task_iterations = @iterations - (@task_start_iterations || 0)
+      
+      # Calculate cost for current task only
+      task_cost = @total_cost - (@task_start_cost || 0)
+      
       {
         status: status,
         session_id: @session_id,
-        iterations: @iterations,
+        iterations: task_iterations,  # Show only current task iterations
         duration_seconds: Time.now - @start_time,
-        total_cost_usd: @total_cost.round(4),
+        total_cost_usd: task_cost.round(4),  # Show only current task cost
         cost_source: @task_cost_source,  # Add cost source for this task
-        cache_stats: @cache_stats,
+        cache_stats: @task_cache_stats || @cache_stats,  # Use task cache stats if available
         messages: @messages,
         error: error
       }
