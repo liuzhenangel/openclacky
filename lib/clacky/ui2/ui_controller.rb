@@ -208,19 +208,21 @@ module Clacky
       #   - cost: cost for this iteration
       def show_token_usage(token_data)
         theme = ThemeManager.current_theme
+        pastel = Pastel.new
 
         token_info = []
 
-        # Delta tokens with color coding
+        # Delta tokens with color coding (green/yellow/red + dim)
         delta_tokens = token_data[:delta_tokens]
         delta_str = "+#{delta_tokens}"
-        colored_delta = if delta_tokens > 10000
-          theme.format_text(delta_str, :error)
+        color_style = if delta_tokens > 10000
+          :red
         elsif delta_tokens > 5000
-          theme.format_text(delta_str, :warning)
+          :yellow
         else
-          theme.format_text(delta_str, :success)
+          :green
         end
+        colored_delta = pastel.decorate(delta_str, color_style, :dim)
         token_info << colored_delta
 
         # Cache status indicator (using theme)
@@ -228,31 +230,44 @@ module Clacky
         cache_read = token_data[:cache_read]
         cache_used = cache_read > 0 || cache_write > 0
         if cache_used
-          token_info << theme.format_symbol(:cached)
+          token_info << pastel.dim(theme.symbol(:cached))
         end
 
         # Input tokens (with cache breakdown if available)
         prompt_tokens = token_data[:prompt_tokens]
         if cache_write > 0 || cache_read > 0
           input_detail = "#{prompt_tokens} (cache: #{cache_read} read, #{cache_write} write)"
-          token_info << "Input: #{input_detail}"
+          token_info << pastel.dim("Input: #{input_detail}")
         else
-          token_info << "Input: #{prompt_tokens}"
+          token_info << pastel.dim("Input: #{prompt_tokens}")
         end
 
         # Output tokens
-        token_info << "Output: #{token_data[:completion_tokens]}"
+        token_info << pastel.dim("Output: #{token_data[:completion_tokens]}")
 
         # Total
-        token_info << "Total: #{token_data[:total_tokens]}"
+        token_info << pastel.dim("Total: #{token_data[:total_tokens]}")
 
-        # Cost for this iteration
+        # Cost for this iteration with color coding (red/yellow for high cost, dim for normal)
         if token_data[:cost]
-          token_info << "Cost: $#{token_data[:cost].round(6)}"
+          cost = token_data[:cost]
+          cost_value = "$#{cost.round(6)}"
+          if cost >= 0.1
+            # High cost - red warning
+            colored_cost = pastel.decorate(cost_value, :red, :dim)
+            token_info << pastel.dim("Cost: ") + colored_cost
+          elsif cost >= 0.05
+            # Medium cost - yellow warning
+            colored_cost = pastel.decorate(cost_value, :yellow, :dim)
+            token_info << pastel.dim("Cost: ") + colored_cost
+          else
+            # Low cost - normal gray
+            token_info << pastel.dim("Cost: #{cost_value}")
+          end
         end
 
-        # Display through output system
-        token_display = theme.format_text("    [Tokens] #{token_info.join(' | ')}", :thinking)
+        # Display through output system (already all dimmed, just add prefix)
+        token_display = pastel.dim("    [Tokens] ") + token_info.join(pastel.dim(' | '))
         append_output(token_display)
       end
 
