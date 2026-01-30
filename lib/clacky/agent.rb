@@ -692,11 +692,7 @@ module Clacky
     private def build_tool_progress_message(tool_name, args)
       case tool_name.to_s.downcase
       when 'shell', 'safe_shell'
-        command = args[:command] || args['command']
-        # Extract the main command for display
-        cmd_parts = command.to_s.split
-        main_cmd = cmd_parts.first(2).join(' ')
-        "Running #{main_cmd}"
+        "Running..."
       when 'web_fetch'
         "Fetching web page"
       when 'web_search'
