@@ -2,7 +2,6 @@
 
 require_relative "layout_manager"
 require_relative "view_renderer"
-require_relative "components/output_area"
 require_relative "components/input_area"
 require_relative "components/todo_area"
 require_relative "components/welcome_banner"
@@ -31,13 +30,11 @@ module Clacky
         }
 
         # Initialize layout components
-        @output_area = Components::OutputArea.new(height: 20) # Will be recalculated
         @input_area = Components::InputArea.new
         @todo_area = Components::TodoArea.new
         @welcome_banner = Components::WelcomeBanner.new
         @inline_input = nil  # Created when needed
         @layout = LayoutManager.new(
-          output_area: @output_area,
           input_area: @input_area,
           todo_area: @todo_area
         )

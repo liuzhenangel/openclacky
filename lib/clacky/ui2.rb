@@ -10,7 +10,6 @@ require_relative "ui2/view_renderer"
 require_relative "ui2/ui_controller"
 
 require_relative "ui2/components/base_component"
-require_relative "ui2/components/output_area"
 require_relative "ui2/components/input_area"
 require_relative "ui2/components/message_component"
 require_relative "ui2/components/tool_component"

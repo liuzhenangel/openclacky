@@ -6,11 +6,10 @@ module Clacky
   module UI2
     # LayoutManager manages screen layout with split areas (output area on top, input area on bottom)
     class LayoutManager
-      attr_reader :screen, :output_area, :input_area, :todo_area
+      attr_reader :screen, :input_area, :todo_area
 
-      def initialize(output_area:, input_area:, todo_area: nil)
+      def initialize(input_area:, todo_area: nil)
         @screen = ScreenBuffer.new
-        @output_area = output_area
         @input_area = input_area
         @todo_area = todo_area
         @render_mutex = Mutex.new
@@ -35,7 +34,6 @@ module Clacky
         @input_row = @todo_row + todo_height
 
         # Update component dimensions
-        @output_area.height = @output_height
         @input_area.row = @input_row
       end
 
@@ -159,14 +157,16 @@ module Clacky
       # Clear output area (for /clear command)
       def clear_output
         @render_mutex.synchronize do
-          # Clear all lines in output area (from 0 to fixed_area_start - 1)
-          max_output_row = fixed_area_start_row
-          (0...max_output_row).each do |row|
+          # Clear all lines in output area (from 0 to where fixed area starts)
+          max_row = fixed_area_start_row
+          (0...max_row).each do |row|
             screen.move_cursor(row, 0)
             screen.clear_line
           end
-          # Reset output row position to start
+          
+          # Reset output position to beginning
           @output_row = 0
+          
           # Re-render fixed areas to ensure they stay in place
           render_fixed_areas
           screen.flush
@@ -174,46 +174,24 @@ module Clacky
       end
 
       # Append content to output area
-      # Track current row, scroll when reaching fixed area
-      # @param content [String] Content to append
+      # This is the main output method - handles scrolling and fixed area preservation
+      # @param content [String] Content to append (can be multi-line)
       def append_output(content)
         return if content.nil?
 
         @render_mutex.synchronize do
-          max_output_row = fixed_area_start_row - 1
-
-          # Special handling for empty string - just add a blank line
-          if content.empty?
-            print "\n"
-            @output_row += 1
-            render_fixed_areas
-            screen.flush
-            return
-          end
-
-          content.split("\n").each do |line|
+          lines = content.split("\n", -1)  # -1 to keep trailing empty strings
+          
+          lines.each_with_index do |line, index|
             # Wrap long lines to prevent display issues
             wrapped_lines = wrap_long_line(line)
             
             wrapped_lines.each do |wrapped_line|
-              # If at max row, need to scroll before outputting
-              if @output_row > max_output_row
-                # Move to bottom of screen and print newline to trigger scroll
-                screen.move_cursor(screen.height - 1, 0)
-                print "\n"
-                # Stay at max_output_row for next output
-                @output_row = max_output_row
-              end
-
-              # Output line at current position
-              screen.move_cursor(@output_row, 0)
-              screen.clear_line
-              output_area.append(wrapped_line)
-              @output_row += 1
+              write_output_line(wrapped_line)
             end
           end
 
-          # Re-render fixed areas at screen bottom
+          # Re-render fixed areas to ensure they stay at bottom
           render_fixed_areas
           screen.flush
         end
@@ -223,40 +201,48 @@ module Clacky
       # @param content [String] Content to update
       def update_last_line(content)
         @render_mutex.synchronize do
-          # Last output line is at @output_row - 1
-          last_row = [@output_row - 1, 0].max
+          return if @output_row == 0  # No output yet
+          
+          # Last written line is at @output_row - 1
+          last_row = @output_row - 1
           screen.move_cursor(last_row, 0)
           screen.clear_line
-          output_area.append(content)
-          render_fixed_areas
+          print content
           screen.flush
+          
+          # Don't re-render fixed areas - we're just updating existing content
         end
       end
 
       # Remove the last line from output area
       def remove_last_line
         @render_mutex.synchronize do
-          last_row = [@output_row - 1, 0].max
+          return if @output_row == 0  # No output to remove
+          
+          # Clear the last written line
+          last_row = @output_row - 1
           screen.move_cursor(last_row, 0)
           screen.clear_line
-          @output_row = last_row if @output_row > 0
+          
+          # Move output row back
+          @output_row = last_row
+          
+          # Re-render fixed areas to ensure consistency
           render_fixed_areas
           screen.flush
         end
       end
 
-      # Scroll output area up
+      # Scroll output area up (legacy no-op)
       # @param lines [Integer] Number of lines to scroll
       def scroll_output_up(lines = 1)
-        output_area.scroll_up(lines)
-        render_output
+        # No-op - terminal handles scrolling natively
       end
 
-      # Scroll output area down
+      # Scroll output area down (legacy no-op)
       # @param lines [Integer] Number of lines to scroll
       def scroll_output_down(lines = 1)
-        output_area.scroll_down(lines)
-        render_output
+        # No-op - terminal handles scrolling natively
       end
 
       # Handle window resize
@@ -266,13 +252,13 @@ module Clacky
         screen.update_dimensions
         calculate_layout
 
-        # Adjust output_row if it exceeds new max
-        max_row = fixed_area_start_row - 1
-        @output_row = [@output_row, max_row].min
+        # Adjust @output_row if it exceeds new layout
+        # After resize, @output_row should not exceed fixed_area_start_row
+        max_allowed = fixed_area_start_row
+        @output_row = [@output_row, max_allowed].min
 
-        # Clear old fixed area lines and a few lines above (in case of terminal auto-wrap)
-        # Clear from a few lines before old_gap_row to screen bottom to handle wrapped content
-        clear_start = [old_gap_row - 5, 0].max  # Clear 5 lines before gap to catch wrapped content
+        # Clear old fixed area and some lines above (terminal may have wrapped content)
+        clear_start = [old_gap_row - 5, 0].max
         (clear_start...screen.height).each do |row|
           screen.move_cursor(row, 0)
           screen.clear_line
@@ -283,6 +269,35 @@ module Clacky
       end
 
       private
+
+      # Write a single line to output area
+      # Handles scrolling when reaching fixed area
+      # @param line [String] Single line to write (should not contain newlines)
+      def write_output_line(line)
+        # Calculate where fixed area starts (this is where output area ends)
+        max_output_row = fixed_area_start_row
+        
+        # If we're about to write into the fixed area, scroll first
+        if @output_row >= max_output_row
+          # Trigger terminal scroll by printing newline at bottom
+          screen.move_cursor(screen.height - 1, 0)
+          print "\n"
+          
+          # After scroll, position to write at the last row of output area
+          @output_row = max_output_row - 1
+          
+          # Important: Re-render fixed areas after scroll to prevent corruption
+          render_fixed_areas
+        end
+        
+        # Now write the line at current position
+        screen.move_cursor(@output_row, 0)
+        screen.clear_line
+        print line
+        
+        # Move to next row for next write
+        @output_row += 1
+      end
 
       # Wrap a long line into multiple lines based on terminal width
       # Considers display width of multi-byte characters (e.g., Chinese characters)
@@ -414,7 +429,7 @@ module Clacky
 
       # Internal render all (without mutex)
       def render_all_internal
-        output_area.render(start_row: 0)
+        # Output flows naturally, just render fixed areas
         render_fixed_areas
         screen.flush
       end
