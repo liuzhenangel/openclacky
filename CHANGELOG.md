@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-01-30
+
+### Added
+- `--theme` CLI option to switch UI themes (hacker, minimal)
+- Support for reading binary files (with 5MB limit)
+- Cost color coding for better visibility
+- Install script for easier installation
+- New command handling improvements
+
+### Improved
+- User input style enhancements
+- Tool execution output simplification
+- Thinking mode output improvements
+- Diff format display with cleaner line numbers
+- Terminal resize handling
+
+### Fixed
+- BadQuotedString parsing error
+- Token counting for every new task
+- Shell output max characters limit
+- Inline input cursor positioning
+- Compress message display (now hidden)
+
+### Removed
+- Redundant output components for cleaner architecture
+
 ## [0.6.1] - 2026-01-29
 
 ### Added
