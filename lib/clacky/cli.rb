@@ -127,6 +127,80 @@ module Clacky
       end
     end
 
+    desc "new PROJECT_NAME", "Create a new Rails project from the official template"
+    long_desc <<-LONGDESC
+      Create a new Rails project from the official template.
+
+      This command will:
+        1. Clone the template from git@github.com:clacky-ai/rails-template-7x-starter.git
+        2. Change into the project directory
+        3. Run bin/setup to install dependencies and configure the project
+
+      Example:
+        $ clacky new my_rails_app
+    LONGDESC
+    def new(project_name = nil)
+      unless project_name
+        say "Error: Project name is required.", :red
+        say "Usage: clacky new <project_name>", :yellow
+        exit 1
+      end
+
+      # Validate project name
+      unless project_name.match?(/^[a-zA-Z][a-zA-Z0-9_-]*$/)
+        say "Error: Invalid project name. Use only letters, numbers, underscores, and hyphens.", :red
+        exit 1
+      end
+
+      template_repo = "git@github.com:clacky-ai/rails-template-7x-starter.git"
+      current_dir = Dir.pwd
+      target_dir = File.join(current_dir, project_name)
+
+      # Check if target directory already exists
+      if Dir.exist?(target_dir)
+        say "Error: Directory '#{project_name}' already exists.", :red
+        exit 1
+      end
+
+      say "Creating new Rails project: #{project_name}", :green
+
+      # Clone the template repository
+      say "\n📦 Cloning template repository...", :cyan
+      clone_command = "git clone #{template_repo} #{project_name}"
+
+      clone_result = system(clone_command)
+
+      unless clone_result
+        say "\n❌ Failed to clone repository. Please check your git configuration and network connection.", :red
+        exit 1
+      end
+
+      say "✓ Repository cloned successfully", :green
+
+      # Run bin/setup
+      say "\n⚙️  Running bin/setup...", :cyan
+
+      Dir.chdir(target_dir)
+
+      setup_command = "./bin/setup"
+
+      setup_result = system(setup_command)
+
+      Dir.chdir(current_dir)
+
+      unless setup_result
+        say "\n❌ Failed to run bin/setup. Please check the setup script for errors.", :red
+        say "You can try running it manually:", :yellow
+        say "  cd #{project_name} && ./bin/setup", :cyan
+        exit 1
+      end
+
+      say "\n✅ Project '#{project_name}' created successfully!", :green
+      say "\nNext steps:", :green
+      say "  cd #{project_name}", :cyan
+      say "  clacky agent", :cyan
+    end
+
     desc "price", "Show pricing information for AI models"
     def price
       say "\n💰 Model Pricing Information\n\n", :green
