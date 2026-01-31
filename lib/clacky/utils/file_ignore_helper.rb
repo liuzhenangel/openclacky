@@ -30,20 +30,18 @@ module Clacky
         /\.ini$/,
         /\.conf$/,
         /\.config$/,
-        /config\//,
-        /\.config\//
       ].freeze
 
       # Find .gitignore file in the search path or parent directories
       # Only searches within the search path and up to the current working directory
       def self.find_gitignore(path)
         search_path = File.directory?(path) ? path : File.dirname(path)
-        
+
         # Look for .gitignore in current and parent directories
         current = File.expand_path(search_path)
         cwd = File.expand_path(Dir.pwd)
         root = File.expand_path('/')
-        
+
         # Limit search: only go up to current working directory
         # This prevents finding .gitignore files from unrelated parent directories
         # when searching in temporary directories (like /tmp in tests)
@@ -52,16 +50,16 @@ module Clacky
                       else
                         current
                       end
-        
+
         loop do
           gitignore = File.join(current, '.gitignore')
           return gitignore if File.exist?(gitignore)
-          
+
           # Stop if we've reached the search limit or root
           break if current == search_limit || current == root
           current = File.dirname(current)
         end
-        
+
         nil
       end
 
@@ -71,10 +69,10 @@ module Clacky
         # Expand both paths to handle symlinks and relative paths correctly
         expanded_file = File.expand_path(file)
         expanded_base = File.expand_path(base_path)
-        
+
         # For files, use the directory as base
         expanded_base = File.dirname(expanded_base) if File.file?(expanded_base)
-        
+
         # Calculate relative path
         if expanded_file.start_with?(expanded_base)
           relative_path = expanded_file[(expanded_base.length + 1)..-1] || File.basename(expanded_file)
@@ -82,10 +80,10 @@ module Clacky
           # File is outside base path - use just the filename
           relative_path = File.basename(expanded_file)
         end
-        
+
         # Clean up relative path
         relative_path = relative_path.sub(/^\.\//, '') if relative_path
-        
+
         if gitignore
           # Use .gitignore rules
           gitignore.ignored?(relative_path)
@@ -96,7 +94,7 @@ module Clacky
               File.fnmatch(pattern, relative_path, File::FNM_PATHNAME | File::FNM_DOTMATCH)
             else
               # Match pattern as a path component (not substring of absolute path)
-              relative_path.start_with?("#{pattern}/") || 
+              relative_path.start_with?("#{pattern}/") ||
               relative_path.include?("/#{pattern}/") ||
               relative_path == pattern ||
               File.basename(relative_path) == pattern

@@ -59,11 +59,6 @@ module Clacky
             description: "Maximum file size in bytes to search (default: 1MB)",
             default: MAX_FILE_SIZE
           },
-          max_files_to_search: {
-            type: "integer",
-            description: "Maximum number of files to search",
-            default: 500
-          }
         },
         required: %w[pattern]
       }
@@ -78,7 +73,7 @@ module Clacky
         max_matches_per_file: 50,
         max_total_matches: 200,
         max_file_size: MAX_FILE_SIZE,
-        max_files_to_search: 500
+        max_files_to_search: 10000
       )
         # Validate pattern
         if pattern.nil? || pattern.strip.empty?
@@ -135,7 +130,7 @@ module Clacky
             end
 
             # Skip if file should be ignored (unless it's a config file)
-            if Clacky::Utils::FileIgnoreHelper.should_ignore_file?(file, expanded_path, gitignore) && 
+            if Clacky::Utils::FileIgnoreHelper.should_ignore_file?(file, expanded_path, gitignore) &&
                !Clacky::Utils::FileIgnoreHelper.is_config_file?(file)
               skipped[:ignored] += 1
               next
@@ -217,12 +212,12 @@ module Clacky
           matches = result[:total_matches] || 0
           files = result[:files_with_matches] || 0
           msg = "[OK] Found #{matches} matches in #{files} files"
-          
+
           # Add truncation info if present
           if result[:truncated] && result[:truncation_reason]
             msg += " (truncated: #{result[:truncation_reason]})"
           end
-          
+
           msg
         end
       end
@@ -275,12 +270,12 @@ module Clacky
 
       def search_file(file, regex, context_lines, max_matches)
         matches = []
-        
+
         # Use File.foreach for memory-efficient line-by-line reading
         File.foreach(file, chomp: true).with_index do |line, index|
           # Stop if we have enough matches for this file
           break if matches.length >= max_matches
-          
+
           next unless line.match?(regex)
 
           # Truncate long lines
@@ -315,10 +310,10 @@ module Clacky
         (start_line..end_line).each do |i|
           line_content = lines[i]
           # Truncate long lines in context too
-          display_content = line_content.length > MAX_LINE_LENGTH ? 
-                          "#{line_content[0...MAX_LINE_LENGTH]}..." : 
+          display_content = line_content.length > MAX_LINE_LENGTH ?
+                          "#{line_content[0...MAX_LINE_LENGTH]}..." :
                           line_content
-          
+
           context << {
             line_number: i + 1,
             content: display_content,

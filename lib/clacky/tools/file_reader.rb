@@ -81,15 +81,25 @@ module Clacky
 
           # Apply line range
           start_idx = start_line ? [start_line - 1, 0].max : 0
-          end_idx = end_line ? [end_line - 1, total_lines - 1].max : [max_lines - 1, total_lines - 1].min
+          end_idx = end_line ? [end_line - 1, total_lines - 1].min : [max_lines - 1, total_lines - 1].min
 
-          # Validate range
-          if start_idx > end_idx || start_idx >= total_lines
+          # Check if start_line exceeds file length first
+          if start_idx >= total_lines
             return {
               path: expanded_path,
               content: nil,
               lines_read: 0,
-              error: "Invalid line range: start_line #{start_line || 1} > end_line #{end_line || total_lines}"
+              error: "Invalid line range: start_line #{start_line} exceeds total lines (#{total_lines})"
+            }
+          end
+
+          # Validate range
+          if start_idx > end_idx
+            return {
+              path: expanded_path,
+              content: nil,
+              lines_read: 0,
+              error: "Invalid line range: start_line #{start_line} > end_line #{end_line}"
             }
           end
 

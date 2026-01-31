@@ -69,6 +69,92 @@ RSpec.describe Clacky::Tools::FileReader do
           end
         end
       end
+
+      context "when reading with line range" do
+        it "reads lines within valid range" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..20).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 5, end_line: 10)
+
+            expect(result[:error]).to be_nil
+            expect(result[:content]).to eq("Line 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\n")
+            expect(result[:lines_read]).to eq(6)
+            expect(result[:start_line]).to eq(5)
+            expect(result[:end_line]).to eq(10)
+          end
+        end
+
+        it "clamps end_line to file length" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..10).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 5, end_line: 100)
+
+            expect(result[:error]).to be_nil
+            expect(result[:content]).to eq("Line 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\n")
+            expect(result[:lines_read]).to eq(6)
+          end
+        end
+
+        it "returns error when start_line exceeds total lines" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..10).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 100, end_line: 200)
+
+            expect(result[:error]).to include("exceeds total lines")
+            expect(result[:content]).to be_nil
+          end
+        end
+
+        it "returns error when start_line is greater than end_line" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..10).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 8, end_line: 5)
+
+            expect(result[:error]).to include("start_line 8 > end_line 5")
+            expect(result[:content]).to be_nil
+          end
+        end
+
+        it "reads from start_line to end of file when end_line not specified" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..50).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 45)
+
+            expect(result[:error]).to be_nil
+            expect(result[:lines_read]).to eq(6)
+            expect(result[:content]).to eq("Line 45\nLine 46\nLine 47\nLine 48\nLine 49\nLine 50\n")
+          end
+        end
+
+        it "handles start_line at file boundary" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..10).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 10, end_line: 15)
+
+            expect(result[:error]).to be_nil
+            expect(result[:content]).to eq("Line 10\n")
+            expect(result[:lines_read]).to eq(1)
+          end
+        end
+      end
     end
 
     context "when reading a directory" do
