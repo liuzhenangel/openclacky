@@ -109,30 +109,49 @@ module Clacky
         # Render inline input with prompt and cursor
         # @return [String] Rendered line (may wrap to multiple lines)
         def render
-          line = render_line_with_cursor
-          full_text = "#{@prompt}#{line}"
-          
-          # Calculate terminal width and check if wrapping is needed
           width = TTY::Screen.width
-          visible_text = strip_ansi_codes(full_text)
-          display_width = calculate_display_width(visible_text)
-          
-          # If no wrapping needed, return as is
-          return full_text if display_width <= width
-          
-          # Otherwise, wrap the input (prompt on first line, continuation indented)
           prompt_width = calculate_display_width(strip_ansi_codes(@prompt))
           available_width = width - prompt_width
-          
-          # For simplicity, just return full text and let terminal handle wrapping
-          # InlineInput is typically short, so natural wrapping should be fine
-          full_text
+
+          # Get wrapped segments
+          wrapped_segments = wrap_line(@line, available_width)
+
+          # Build rendered output with cursor
+          output = ""
+
+          wrapped_segments.each_with_index do |segment, idx|
+            prefix = if idx == 0
+              @prompt
+            else
+              "> "  # Continuation prompt indicator
+            end
+
+            # Render segment with cursor if needed
+            segment_text = render_line_segment_with_cursor(@line, segment[:start], segment[:end])
+
+            output += "#{prefix}#{segment_text}"
+            output += "\n" unless idx == wrapped_segments.size - 1
+          end
+
+          output
         end
 
         # Get cursor column position
         # @return [Integer] Column position
         def cursor_col
           cursor_column(@prompt)
+        end
+
+        # Get the number of lines this input will occupy when rendered
+        # @param width [Integer] Terminal width
+        # @return [Integer] Number of lines
+        def line_count(width = TTY::Screen.width)
+          prompt_width = calculate_display_width(strip_ansi_codes(@prompt))
+          available_width = width - prompt_width
+          return 1 if available_width <= 0
+
+          segments = wrap_line(@line, available_width)
+          segments.size
         end
 
         # Deactivate inline input

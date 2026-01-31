@@ -91,11 +91,15 @@ module Clacky
       def position_inline_input_cursor(inline_input)
         return unless inline_input
 
-        # Calculate the actual terminal cursor position considering multi-byte characters
-        # InlineInput is on the last output line (@output_row - 1)
-        cursor_row = @output_row - 1
-        cursor_col = inline_input.cursor_col  # This already considers display width
-        
+        # Use the shared method from LineEditor to calculate cursor position with wrap
+        prompt = inline_input.prompt
+        width = screen.width
+        wrap_row, wrap_col = inline_input.cursor_position_with_wrap(prompt, width)
+
+        # InlineInput is on the last output line, plus any wrapped rows
+        cursor_row = @output_row - 1 + wrap_row
+        cursor_col = wrap_col
+
         # Move terminal cursor to the correct position
         screen.move_cursor(cursor_row, cursor_col)
         screen.flush
@@ -184,11 +188,11 @@ module Clacky
 
         @render_mutex.synchronize do
           lines = content.split("\n", -1)  # -1 to keep trailing empty strings
-          
+
           lines.each_with_index do |line, index|
             # Wrap long lines to prevent display issues
             wrapped_lines = wrap_long_line(line)
-            
+
             wrapped_lines.each do |wrapped_line|
               write_output_line(wrapped_line)
             end
@@ -200,40 +204,72 @@ module Clacky
         end
       end
 
-      # Update the last line in output area (for progress indicator)
-      # @param content [String] Content to update
-      def update_last_line(content)
+      # Update the last N lines in output area (for inline input updates)
+      # @param content [String] Content to update (may contain newlines for wrapped lines)
+      # @param old_line_count [Integer] Number of lines currently occupied (for clearing)
+      def update_last_line(content, old_line_count = 1)
         @render_mutex.synchronize do
           return if @output_row == 0  # No output yet
-          
-          # Last written line is at @output_row - 1
-          last_row = @output_row - 1
-          screen.move_cursor(last_row, 0)
-          screen.clear_line
-          print content
-          
-          # Hide terminal cursor to avoid showing two cursors
-          # InlineInput uses visual cursor (white background) which is better for multi-byte chars
+
+          # Calculate start row (last N lines)
+          start_row = @output_row - old_line_count
+          start_row = 0 if start_row < 0
+
+          # Clear all lines that will be updated
+          (start_row...@output_row).each do |row|
+            screen.move_cursor(row, 0)
+            screen.clear_line
+          end
+
+          # Re-render the content
+          lines = content.split("\n", -1)
+          current_row = start_row
+
+          lines.each_with_index do |line, idx|
+            screen.move_cursor(current_row, 0)
+            print line
+            current_row += 1
+          end
+
+          # Update output_row to new line count
+          @output_row = start_row + lines.length
+
+          # Clear any remaining old lines if new content has fewer lines
+          # This handles the case where content shrinks (e.g., delete from 2 lines to 1 line)
+          old_end_row = @output_row + (old_line_count - lines.length)
+          if old_end_row > @output_row && old_end_row <= start_row + old_line_count
+            # Clear the extra old lines
+            (@output_row...old_end_row).each do |row|
+              screen.move_cursor(row, 0)
+              screen.clear_line
+            end
+          end
+
+          # Hide terminal cursor
           screen.hide_cursor
           screen.flush
-          
-          # Don't re-render fixed areas - we're just updating existing content
         end
       end
 
-      # Remove the last line from output area
-      def remove_last_line
+      # Remove the last N lines from output area
+      # @param line_count [Integer] Number of lines to remove (default: 1)
+      def remove_last_line(line_count = 1)
         @render_mutex.synchronize do
           return if @output_row == 0  # No output to remove
-          
-          # Clear the last written line
-          last_row = @output_row - 1
-          screen.move_cursor(last_row, 0)
-          screen.clear_line
-          
-          # Move output row back
-          @output_row = last_row
-          
+
+          # Calculate start row for removal
+          start_row = @output_row - line_count
+          start_row = 0 if start_row < 0
+
+          # Clear all lines being removed
+          (start_row...@output_row).each do |row|
+            screen.move_cursor(row, 0)
+            screen.clear_line
+          end
+
+          # Update output_row
+          @output_row = start_row
+
           # Re-render fixed areas to ensure consistency
           render_fixed_areas
           screen.flush

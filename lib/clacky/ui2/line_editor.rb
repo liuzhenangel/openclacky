@@ -188,13 +188,153 @@ module Clacky
         # Strip ANSI codes from prompt to get actual display width
         visible_prompt = strip_ansi_codes(prompt)
         prompt_display_width = calculate_display_width(visible_prompt)
-        
+
         # Calculate display width of text before cursor
         chars = @line.chars
         text_before_cursor = chars[0...@cursor_position].join
         text_display_width = calculate_display_width(text_before_cursor)
-        
+
         prompt_display_width + text_display_width
+      end
+
+      # Get cursor position considering line wrapping
+      # @param prompt [String] Prompt string before the line (may contain ANSI codes)
+      # @param width [Integer] Terminal width for wrapping
+      # @return [Array<Integer>] Row and column position (0-indexed)
+      def cursor_position_with_wrap(prompt = "", width = TTY::Screen.width)
+        return [0, cursor_column(prompt)] if width <= 0
+
+        prompt_width = calculate_display_width(strip_ansi_codes(prompt))
+        available_width = width - prompt_width
+
+        # Get wrapped segments for current line
+        wrapped_segments = wrap_line(@line, available_width)
+
+        # Find which segment contains cursor
+        cursor_segment_idx = 0
+        cursor_pos_in_segment = @cursor_position
+
+        wrapped_segments.each_with_index do |segment, idx|
+          if @cursor_position >= segment[:start] && @cursor_position < segment[:end]
+            cursor_segment_idx = idx
+            cursor_pos_in_segment = @cursor_position - segment[:start]
+            break
+          elsif @cursor_position >= segment[:end] && idx == wrapped_segments.size - 1
+            cursor_segment_idx = idx
+            cursor_pos_in_segment = segment[:end] - segment[:start]
+            break
+          end
+        end
+
+        # Calculate display width of text before cursor in this segment
+        chars = @line.chars
+        segment_start = wrapped_segments[cursor_segment_idx][:start]
+        text_in_segment_before_cursor = chars[segment_start...(segment_start + cursor_pos_in_segment)].join
+        display_width = calculate_display_width(text_in_segment_before_cursor)
+
+        col = prompt_width + display_width
+        row = cursor_segment_idx
+
+        [row, col]
+      end
+
+      # Wrap a line into multiple segments based on available width
+      # Considers display width of characters (multi-byte characters like Chinese)
+      # @param line [String] The line to wrap
+      # @param max_width [Integer] Maximum display width per wrapped line
+      # @return [Array<Hash>] Array of segment info: { text: String, start: Integer, end: Integer }
+      def wrap_line(line, max_width)
+        return [{ text: "", start: 0, end: 0 }] if line.empty?
+        return [{ text: line, start: 0, end: line.length }] if max_width <= 0
+
+        segments = []
+        chars = line.chars
+        segment_start = 0
+        current_width = 0
+        current_end = 0
+
+        chars.each_with_index do |char, idx|
+          char_width = char_display_width(char)
+
+          # If adding this character exceeds max width, complete current segment
+          if current_width + char_width > max_width && current_end > segment_start
+            segments << {
+              text: chars[segment_start...current_end].join,
+              start: segment_start,
+              end: current_end
+            }
+            segment_start = idx
+            current_end = idx + 1
+            current_width = char_width
+          else
+            current_end = idx + 1
+            current_width += char_width
+          end
+        end
+
+        # Add the last segment
+        if current_end > segment_start
+          segments << {
+            text: chars[segment_start...current_end].join,
+            start: segment_start,
+            end: current_end
+          }
+        end
+
+        segments.empty? ? [{ text: "", start: 0, end: 0 }] : segments
+      end
+
+      # Calculate display width of a single character
+      # @param char [String] Single character
+      # @return [Integer] Display width (1 or 2)
+      def char_display_width(char)
+        code = char.ord
+        # East Asian Wide and Fullwidth characters take 2 columns
+        if (code >= 0x1100 && code <= 0x115F) ||
+           (code >= 0x2329 && code <= 0x232A) ||
+           (code >= 0x2E80 && code <= 0x303E) ||
+           (code >= 0x3040 && code <= 0xA4CF) ||
+           (code >= 0xAC00 && code <= 0xD7A3) ||
+           (code >= 0xF900 && code <= 0xFAFF) ||
+           (code >= 0xFE10 && code <= 0xFE19) ||
+           (code >= 0xFE30 && code <= 0xFE6F) ||
+           (code >= 0xFF00 && code <= 0xFF60) ||
+           (code >= 0xFFE0 && code <= 0xFFE6) ||
+           (code >= 0x1F300 && code <= 0x1F9FF) ||
+           (code >= 0x20000 && code <= 0x2FFFD) ||
+           (code >= 0x30000 && code <= 0x3FFFD)
+          2
+        else
+          1
+        end
+      end
+
+      # Render a segment of a line with cursor if cursor is in this segment
+      # @param line [String] Full line text
+      # @param segment_start [Integer] Start position of segment in line (char index)
+      # @param segment_end [Integer] End position of segment in line (char index)
+      # @return [String] Rendered segment with cursor if applicable
+      def render_line_segment_with_cursor(line, segment_start, segment_end)
+        chars = line.chars
+        segment_chars = chars[segment_start...segment_end]
+
+        # Check if cursor is in this segment
+        if @cursor_position >= segment_start && @cursor_position < segment_end
+          # Cursor is in this segment
+          cursor_pos_in_segment = @cursor_position - segment_start
+          before_cursor = segment_chars[0...cursor_pos_in_segment].join
+          cursor_char = segment_chars[cursor_pos_in_segment] || " "
+          after_cursor = segment_chars[(cursor_pos_in_segment + 1)..-1]&.join || ""
+
+          "#{@pastel.white(before_cursor)}#{@pastel.on_white(@pastel.black(cursor_char))}#{@pastel.white(after_cursor)}"
+        elsif @cursor_position == segment_end && segment_end == line.length
+          # Cursor is at the very end of the line, show it in last segment
+          segment_text = segment_chars.join
+          "#{@pastel.white(segment_text)}#{@pastel.on_white(@pastel.black(' '))}"
+        else
+          # Cursor is not in this segment, just format normally
+          @pastel.white(segment_chars.join)
+        end
       end
     end
   end

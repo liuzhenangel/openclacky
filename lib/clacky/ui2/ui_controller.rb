@@ -556,8 +556,9 @@ module Clacky
         # Collect input (blocks until user presses Enter)
         result_text = inline_input.collect
 
-        # Clean up - remove the inline input line (use layout to track position)
-        @layout.remove_last_line
+        # Clean up - remove the inline input lines (handle wrapped lines)
+        line_count = inline_input.line_count
+        @layout.remove_last_line(line_count)
 
         # Append the final response to output
         if result_text.nil?
@@ -788,16 +789,19 @@ module Clacky
 
       # Handle key input for InlineInput
       def handle_inline_input_key(key)
+        # Get old line count BEFORE modification
+        old_line_count = @inline_input.line_count
+
         result = @inline_input.handle_key(key)
 
         case result[:action]
         when :update
-          # Update the last line of output with current input (use layout to track position)
-          @layout.update_last_line(@inline_input.render)
+          # Update the output area with current input (considering wrapped lines)
+          @layout.update_last_line(@inline_input.render, old_line_count)
           # Position cursor for inline input
           @layout.position_inline_input_cursor(@inline_input)
         when :submit, :cancel
-          # InlineInput is done, will be cleaned up by request_confirmation
+          # InlineInput is done, will be cleaned up by request_confirmation after collect returns
           nil
         when :toggle_mode
           # Update mode and session bar info, but don't render yet

@@ -603,69 +603,14 @@ module Clacky
         # @param max_width [Integer] Maximum display width per wrapped line
         # @return [Array<Hash>] Array of segment info: { text: String, start: Integer, end: Integer }
         def wrap_line(line, max_width)
-          return [{ text: "", start: 0, end: 0 }] if line.empty?
-          return [{ text: line, start: 0, end: line.length }] if max_width <= 0
-
-          segments = []
-          chars = line.chars
-          segment_start = 0
-          current_width = 0
-          current_end = 0
-
-          chars.each_with_index do |char, idx|
-            char_width = char_display_width(char)
-            
-            # If adding this character exceeds max width, complete current segment
-            if current_width + char_width > max_width && current_end > segment_start
-              segments << {
-                text: chars[segment_start...current_end].join,
-                start: segment_start,
-                end: current_end
-              }
-              segment_start = idx
-              current_end = idx + 1
-              current_width = char_width
-            else
-              current_end = idx + 1
-              current_width += char_width
-            end
-          end
-
-          # Add the last segment
-          if current_end > segment_start
-            segments << {
-              text: chars[segment_start...current_end].join,
-              start: segment_start,
-              end: current_end
-            }
-          end
-          
-          segments.empty? ? [{ text: "", start: 0, end: 0 }] : segments
+          super(line, max_width)
         end
 
         # Calculate display width of a single character
         # @param char [String] Single character
         # @return [Integer] Display width (1 or 2)
         def char_display_width(char)
-          code = char.ord
-          # East Asian Wide and Fullwidth characters take 2 columns
-          if (code >= 0x1100 && code <= 0x115F) ||
-             (code >= 0x2329 && code <= 0x232A) ||
-             (code >= 0x2E80 && code <= 0x303E) ||
-             (code >= 0x3040 && code <= 0xA4CF) ||
-             (code >= 0xAC00 && code <= 0xD7A3) ||
-             (code >= 0xF900 && code <= 0xFAFF) ||
-             (code >= 0xFE10 && code <= 0xFE19) ||
-             (code >= 0xFE30 && code <= 0xFE6F) ||
-             (code >= 0xFF00 && code <= 0xFF60) ||
-             (code >= 0xFFE0 && code <= 0xFFE6) ||
-             (code >= 0x1F300 && code <= 0x1F9FF) ||
-             (code >= 0x20000 && code <= 0x2FFFD) ||
-             (code >= 0x30000 && code <= 0x3FFFD)
-            2
-          else
-            1
-          end
+          super(char)
         end
 
         # Strip ANSI escape codes from a string
@@ -979,26 +924,10 @@ module Clacky
         # @param segment_end [Integer] End position of segment in line (char index)
         # @return [String] Rendered segment with cursor if applicable
         def render_line_segment_with_cursor(line, segment_start, segment_end)
-          chars = line.chars
-          segment_chars = chars[segment_start...segment_end]
-          
-          # Check if cursor is in this segment
-          if @cursor_position >= segment_start && @cursor_position < segment_end
-            # Cursor is in this segment
-            cursor_pos_in_segment = @cursor_position - segment_start
-            before_cursor = segment_chars[0...cursor_pos_in_segment].join
-            cursor_char = segment_chars[cursor_pos_in_segment] || " "
-            after_cursor = segment_chars[(cursor_pos_in_segment + 1)..-1]&.join || ""
-            
-            "#{@pastel.white(before_cursor)}#{@pastel.on_white(@pastel.black(cursor_char))}#{@pastel.white(after_cursor)}"
-          elsif @cursor_position == segment_end && segment_end == line.length
-            # Cursor is at the very end of the line, show it in last segment
-            segment_text = segment_chars.join
-            "#{@pastel.white(segment_text)}#{@pastel.on_white(@pastel.black(' '))}"
-          else
-            # Cursor is not in this segment, just format normally
-            theme.format_text(segment_chars.join, :user)
-          end
+          # Delegate to LineEditor's shared implementation
+          rendered = super(line, segment_start, segment_end)
+          # Apply theme colors for InputArea
+          theme.format_text(rendered, :user)
         end
 
         # Render a separator line (ensures it doesn't exceed screen width)
