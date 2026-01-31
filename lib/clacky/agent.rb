@@ -79,6 +79,10 @@ module Clacky
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
 
+      # Compression tracking
+      @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
+      @compressed_summaries = []  # Store summaries from previous compressions for reference
+
       # Register built-in tools
       register_builtin_tools
     end
@@ -795,41 +799,415 @@ module Clacky
       @ui&.show_token_usage(token_data)
     end
 
+    # Estimate token count for a message content
+    # Simple approximation: characters / 4 (English text)
+    # For Chinese/other languages, characters / 2 is more accurate
+    # This is a rough estimate for compression triggering purposes
+    private def estimate_tokens(content)
+      return 0 if content.nil?
+
+      text = if content.is_a?(String)
+               content
+             elsif content.is_a?(Array)
+               # Handle content arrays (e.g., with images)
+               content.map { |c| c[:text] if c.is_a?(Hash) }.compact.join
+             else
+               content.to_s
+             end
+
+      return 0 if text.empty?
+
+      # Detect language mix - count non-ASCII characters
+      ascii_count = text.bytes.count { |b| b < 128 }
+      total_bytes = text.bytes.length
+
+      # Mix ratio (1.0 = all English, 0.5 = all Chinese)
+      mix_ratio = total_bytes > 0 ? ascii_count.to_f / total_bytes : 1.0
+
+      # English: ~4 chars/token, Chinese: ~2 chars/token
+      base_chars_per_token = mix_ratio * 4 + (1 - mix_ratio) * 2
+
+      (text.length / base_chars_per_token).to_i + 50 # Add overhead for message structure
+    end
+
+    # Calculate total token count for all messages
+    # Returns estimated tokens and breakdown by category
+    private def total_message_tokens
+      system_tokens = 0
+      user_tokens = 0
+      assistant_tokens = 0
+      tool_tokens = 0
+      summary_tokens = 0
+
+      @messages.each do |msg|
+        tokens = estimate_tokens(msg[:content])
+        case msg[:role]
+        when "system"
+          system_tokens += tokens
+        when "user"
+          user_tokens += tokens
+        when "assistant"
+          assistant_tokens += tokens
+        when "tool"
+          tool_tokens += tokens
+        end
+      end
+
+      {
+        total: system_tokens + user_tokens + assistant_tokens + tool_tokens,
+        system: system_tokens,
+        user: user_tokens,
+        assistant: assistant_tokens,
+        tool: tool_tokens
+      }
+    end
+
+    # Compression thresholds (in tokens)
+    COMPRESSION_THRESHOLD = 80_000  # Trigger compression when exceeding this
+    TARGET_COMPRESSED_TOKENS = 70_000  # Target size after compression
+    MAX_RECENT_MESSAGES = 30  # Keep this many recent message pairs intact
+
     def compress_messages_if_needed
       # Check if compression is enabled
       return unless @config.enable_compression
 
-      # Only compress if we have more messages than threshold
-      threshold = @config.keep_recent_messages + 80 # +80 to trigger at ~100 messages
-      return if @messages.size <= threshold
+      # Calculate total tokens
+      token_counts = total_message_tokens
+      total_tokens = token_counts[:total]
 
-      original_size = @messages.size
-      target_size = @config.keep_recent_messages + 2
+      # Only compress if we exceed the threshold
+      return if total_tokens < COMPRESSION_THRESHOLD
 
-      @ui&.show_info("Compressing history (#{original_size} -> ~#{target_size} messages)...")
+      # Calculate how much we need to reduce
+      reduction_needed = total_tokens - TARGET_COMPRESSED_TOKENS
+
+      # Don't compress if reduction is minimal (< 10% of current size)
+      return if reduction_needed < (total_tokens * 0.1)
+
+      # Calculate target size for recent messages based on compression level
+      target_recent_count = calculate_target_recent_count(reduction_needed)
+
+      # Increment compression level for progressive summarization
+      @compression_level += 1
+
+      original_tokens = total_tokens
+
+      @ui&.show_info("Compressing history (~#{original_tokens} tokens -> ~#{TARGET_COMPRESSED_TOKENS} tokens)...")
+      @ui&.show_info("Compression level: #{@compression_level}")
 
       # Find the system message (should be first)
       system_msg = @messages.find { |m| m[:role] == "system" }
 
       # Get the most recent N messages, ensuring tool_calls/tool results pairs are kept together
-      recent_messages = get_recent_messages_with_tool_pairs(@messages, @config.keep_recent_messages)
+      recent_messages = get_recent_messages_with_tool_pairs(@messages, target_recent_count)
 
       # Get messages to compress (everything except system and recent)
       messages_to_compress = @messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
 
       return if messages_to_compress.empty?
 
-      # Create summary of compressed messages
-      summary = summarize_messages(messages_to_compress)
+      # Create hierarchical summary based on compression level
+      summary = generate_hierarchical_summary(messages_to_compress)
 
       # Rebuild messages array: [system, summary, recent_messages]
       rebuilt_messages = [system_msg, summary, *recent_messages].compact
 
       @messages = rebuilt_messages
 
-      final_size = @messages.size
+      # Track this compression for progressive summarization
+      @compressed_summaries << {
+        level: @compression_level,
+        message_count: messages_to_compress.size,
+        timestamp: Time.now.iso8601
+      }
 
-      @ui&.show_info("Compressed (#{original_size} -> #{final_size} messages)")
+      final_tokens = total_message_tokens[:total]
+
+      @ui&.show_info("Compressed (~#{original_tokens} -> ~#{final_tokens} tokens, level #{@compression_level})")
+    end
+
+    # Calculate how many recent messages to keep based on how much we need to compress
+    private def calculate_target_recent_count(reduction_needed)
+      # Estimate tokens per message pair (user + assistant + tool results)
+      tokens_per_pair = 800  # Rough estimate
+
+      # Calculate target based on reduction needed
+      target_messages = (TARGET_COMPRESSED_TOKENS / tokens_per_pair).to_i
+
+      # Ensure we keep at least the minimum
+      [target_messages, MAX_RECENT_MESSAGES].max
+    end
+
+    # Generate hierarchical summary based on compression level
+    # Level 1: Detailed summary with files, decisions, features
+    # Level 2: Concise summary with key items
+    # Level 3: Minimal summary (just project type)
+    # Level 4+: Ultra-minimal (single line)
+    private def generate_hierarchical_summary(messages)
+      level = @compression_level
+
+      # Extract key information from messages
+      extracted = extract_key_information(messages)
+
+      summary_text = case level
+      when 1
+        generate_level1_summary(extracted)
+      when 2
+        generate_level2_summary(extracted)
+      when 3
+        generate_level3_summary(extracted)
+      else
+        generate_level4_summary(extracted)
+      end
+
+      {
+        role: "user",
+        content: "[SYSTEM][COMPRESSION LEVEL #{level}] #{summary_text}",
+        system_injected: true,
+        compression_level: level
+      }
+    end
+
+    # Extract key information from messages for summarization
+    private def extract_key_information(messages)
+      {
+        # Message counts
+        user_msgs: messages.count { |m| m[:role] == "user" },
+        assistant_msgs: messages.count { |m| m[:role] == "assistant" },
+        tool_msgs: messages.count { |m| m[:role] == "tool" },
+
+        # Tools used
+        tools_used: extract_tools_used(messages),
+
+        # Files created/modified
+        files_created: extract_created_files(messages),
+        files_modified: extract_modified_files(messages),
+
+        # Key decisions
+        decisions: extract_decisions(messages),
+
+        # Completed tasks (from TODO results)
+        completed_tasks: extract_completed_tasks(messages),
+
+        # Current in-progress work
+        in_progress: extract_in_progress(messages),
+
+        # Key results from shell commands
+        shell_results: extract_shell_results(messages)
+      }
+    end
+
+    private def extract_tools_used(messages)
+      messages
+        .select { |m| m[:role] == "assistant" && m[:tool_calls] }
+        .flat_map { |m| m[:tool_calls].map { |tc| tc.dig(:function, :name) } }
+        .compact
+        .uniq
+    end
+
+    private def extract_created_files(messages)
+      messages
+        .select { |m| m[:role] == "tool" }
+        .map { |m| parse_write_result(m[:content]) }
+        .compact
+        .select { |r| r[:action] == "created" }
+        .map { |r| r[:file] }
+        .uniq
+    end
+
+    private def extract_modified_files(messages)
+      messages
+        .select { |m| m[:role] == "tool" }
+        .map { |m| parse_write_result(m[:content]) }
+        .compact
+        .select { |r| r[:action] == "modified" }
+        .map { |r| r[:file] }
+        .uniq
+    end
+
+    private def parse_write_result(content)
+      return nil unless content.is_a?(String)
+
+      # Check for "Created: path" or "Updated: path" patterns
+      if content.include?("Created:")
+        { action: "created", file: content[/Created:\s*(.+)/, 1]&.strip }
+      elsif content.include?("Updated:") || content.include?("modified")
+        { action: "modified", file: content[/Updated:\s*(.+)/, 1]&.strip || content[/File written to:\s*(.+)/, 1]&.strip }
+      else
+        nil
+      end
+    end
+
+    private def extract_decisions(messages)
+      # Extract technical decisions from assistant messages
+      decisions = []
+      messages.each do |m|
+        if m[:role] == "assistant" && m[:content]
+          content = m[:content].to_s
+          # Look for decision patterns
+          if content.include?("decision") || content.include?("chose to") || content.include?("using")
+            # Extract sentences with key decision words
+            sentences = content.split(/[.!?]/).select do |s|
+              s.include?("decision") || s.include?("chose") || s.include?("using") ||
+              s.include?("decided") || s.include?("will use") || s.include?("selected")
+            end
+            decisions.concat(sentences.map(&:strip).map { |s| s[0..100] })
+          end
+        end
+      end
+      decisions.uniq.first(5)
+    end
+
+    private def extract_completed_tasks(messages)
+      messages
+        .select { |m| m[:role] == "tool" }
+        .map { |m| parse_todo_result(m[:content]) }
+        .compact
+        .select { |r| r[:status] == "completed" }
+        .map { |r| r[:task] }
+        .uniq
+    end
+
+    private def parse_todo_result(content)
+      return nil unless content.is_a?(String)
+
+      if content.include?("completed")
+        { status: "completed", task: content[/completed[:\s]*(.+)/i, 1]&.strip || "task" }
+      elsif content.include?("added")
+        { status: "added", task: content[/added[:\s]*(.+)/i, 1]&.strip || "task" }
+      else
+        nil
+      end
+    end
+
+    private def extract_in_progress(messages)
+      # Find the most recent unfinished task
+      messages.reverse_each do |m|
+        if m[:role] == "tool"
+          content = m[:content].to_s
+          if content.include?("in progress") || content.include?("working on")
+            return content[/[Tt]ODO[:\s]+(.+)/, 1]&.strip || content[/[Ww]orking[Oo]n[:\s]+(.+)/, 1]&.strip
+          end
+        end
+      end
+      nil
+    end
+
+    private def extract_shell_results(messages)
+      messages
+        .select { |m| m[:role] == "tool" }
+        .map { |m| parse_shell_result(m[:content]) }
+        .compact
+        .uniq
+    end
+
+    private def parse_shell_result(content)
+      return nil unless content.is_a?(String)
+
+      if content.include?("passed") || content.include?("success")
+        "tests passed"
+      elsif content.include?("failed") || content.include?("error")
+        "command failed"
+      elsif content =~ /bundle install|npm install|go mod download/
+        "dependencies installed"
+      elsif content.include?("Installed")
+        content[/Installed:\s*(.+)/, 1]&.strip
+      else
+        nil
+      end
+    end
+
+    # Level 1: Detailed summary (for first compression)
+    private def generate_level1_summary(data)
+      parts = []
+
+      parts << "Previous conversation summary (#{data[:user_msgs]} user requests, #{data[:assistant_msgs]} responses, #{data[:tool_msgs]} tool calls):"
+
+      # Files created
+      if data[:files_created].any?
+        files_list = data[:files_created].map { |f| File.basename(f) }.join(", ")
+        parts << "Created: #{files_list}"
+      end
+
+      # Files modified
+      if data[:files_modified].any?
+        files_list = data[:files_modified].map { |f| File.basename(f) }.join(", ")
+        parts << "Modified: #{files_list}"
+      end
+
+      # Completed tasks
+      if data[:completed_tasks].any?
+        tasks_list = data[:completed_tasks].first(3).join(", ")
+        parts << "Completed: #{tasks_list}"
+      end
+
+      # In progress
+      if data[:in_progress]
+        parts << "In Progress: #{data[:in_progress]}"
+      end
+
+      # Key decisions
+      if data[:decisions].any?
+        decisions_text = data[:decisions].map { |d| d.gsub(/\n/, " ").strip }.join("; ")
+        parts << "Decisions: #{decisions_text}"
+      end
+
+      # Tools used
+      if data[:tools_used].any?
+        parts << "Tools: #{data[:tools_used].join(', ')}"
+      end
+
+      parts << "Continuing with recent conversation..."
+      parts.join("\n")
+    end
+
+    # Level 2: Concise summary (for second compression)
+    private def generate_level2_summary(data)
+      parts = []
+
+      parts << "Conversation summary:"
+
+      # Key files (limit to most important)
+      all_files = (data[:files_created] + data[:files_modified]).uniq
+      if all_files.any?
+        key_files = all_files.first(5).map { |f| File.basename(f) }.join(", ")
+        parts << "Files: #{key_files}"
+      end
+
+      # Key accomplishments
+      accomplishments = []
+      accomplishments << "#{data[:completed_tasks].size} tasks completed" if data[:completed_tasks].any?
+      accomplishments << "#{data[:tool_msgs]} tools executed" if data[:tool_msgs] > 0
+      accomplishments << "Level #{data[:completed_tasks].size + 1} progress" if data[:in_progress]
+
+      parts << accomplishments.join(", ") if accomplishments.any?
+
+      parts << "Recent context follows..."
+      parts.join("\n")
+    end
+
+    # Level 3: Minimal summary (for third compression)
+    private def generate_level3_summary(data)
+      parts = []
+
+      parts << "Project progress:"
+
+      # Just counts and key items
+      all_files = (data[:files_created] + data[:files_modified]).uniq
+      parts << "#{all_files.size} files modified, #{data[:completed_tasks].size} tasks done"
+
+      if data[:in_progress]
+        parts << "Currently: #{data[:in_progress]}"
+      end
+
+      parts << "See recent messages for details."
+      parts.join("\n")
+    end
+
+    # Level 4: Ultra-minimal summary (for fourth+ compression)
+    private def generate_level4_summary(data)
+      all_files = (data[:files_created] + data[:files_modified]).uniq
+      "Progress: #{data[:completed_tasks].size} tasks, #{all_files.size} files. Recent: #{data[:tools_used].last(3).join(', ')}"
     end
 
     def get_recent_messages_with_tool_pairs(messages, count)
@@ -921,42 +1299,6 @@ module Clacky
 
       # Extract the messages in their original order
       messages_to_include.to_a.sort.map { |idx| messages[idx] }
-    end
-
-    def summarize_messages(messages)
-      # Count different message types
-      user_msgs = messages.count { |m| m[:role] == "user" }
-      assistant_msgs = messages.count { |m| m[:role] == "assistant" }
-      tool_msgs = messages.count { |m| m[:role] == "tool" }
-
-      # Extract key information
-      tools_used = messages
-        .select { |m| m[:role] == "assistant" && m[:tool_calls] }
-        .flat_map { |m| m[:tool_calls].map { |tc| tc.dig(:function, :name) } }
-        .compact
-        .uniq
-
-      # Count completed tasks from tool results
-      completed_todos = messages
-        .select { |m| m[:role] == "tool" }
-        .map { |m| JSON.parse(m[:content]) rescue nil }
-        .compact
-        .select { |data| data.is_a?(Hash) && data["message"]&.include?("completed") }
-        .size
-
-      summary_text = "Previous conversation summary (#{messages.size} messages compressed):\n"
-      summary_text += "- User requests: #{user_msgs}\n"
-      summary_text += "- Assistant responses: #{assistant_msgs}\n"
-      summary_text += "- Tool executions: #{tool_msgs}\n"
-      summary_text += "- Tools used: #{tools_used.join(', ')}\n" if tools_used.any?
-      summary_text += "- Completed tasks: #{completed_todos}\n" if completed_todos > 0
-      summary_text += "\nContinuing with recent conversation context..."
-
-      {
-        role: "user",
-        content: "[SYSTEM] " + summary_text,
-        system_injected: true
-      }
     end
 
     def confirm_tool_use?(call)
@@ -1179,12 +1521,19 @@ module Clacky
                   "Tool use denied by user"
                 end
 
+      # For edit tool, remind AI to use the exact same old_string from the previous tool call
+      tool_content = {
+        error: message,
+        user_feedback: user_feedback
+      }
+
+      if call[:name] == "edit"
+        tool_content[:hint] = "Keep old_string unchanged. Simply re-read the file if needed and retry with the exact same old_string."
+      end
+
       {
         id: call[:id],
-        content: JSON.generate({
-          error: message,
-          user_feedback: user_feedback
-        })
+        content: JSON.generate(tool_content)
       }
     end
 
