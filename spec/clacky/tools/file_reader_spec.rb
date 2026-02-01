@@ -154,6 +154,48 @@ RSpec.describe Clacky::Tools::FileReader do
             expect(result[:lines_read]).to eq(1)
           end
         end
+
+        it "reads from start_line with max_lines limit (start_line + max_lines)" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..50).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 10, max_lines: 5)
+
+            expect(result[:error]).to be_nil
+            expect(result[:lines_read]).to eq(5)
+            expect(result[:content]).to eq("Line 10\nLine 11\nLine 12\nLine 13\nLine 14\n")
+          end
+        end
+
+        it "clamps to file end when start_line + max_lines exceeds file length" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..20).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            result = tool.execute(path: file_path, start_line: 15, max_lines: 10)
+
+            expect(result[:error]).to be_nil
+            expect(result[:lines_read]).to eq(6)
+            expect(result[:content]).to eq("Line 15\nLine 16\nLine 17\nLine 18\nLine 19\nLine 20\n")
+          end
+        end
+
+        it "returns error when start_line + max_lines would exceed file but still valid" do
+          Dir.mktmpdir do |dir|
+            file_path = File.join(dir, "test.txt")
+            content = (1..20).map { |i| "Line #{i}\n" }.join
+            File.write(file_path, content)
+
+            # This should NOT error - start_line 15 with max_lines 10 should just read to end (line 20)
+            result = tool.execute(path: file_path, start_line: 15, max_lines: 10)
+
+            expect(result[:error]).to be_nil
+            expect(result[:lines_read]).to eq(6)
+          end
+        end
       end
     end
 

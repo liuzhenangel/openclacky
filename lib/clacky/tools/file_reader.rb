@@ -79,9 +79,21 @@ module Clacky
           all_lines = File.readlines(expanded_path)
           total_lines = all_lines.size
 
-          # Apply line range
+          # Calculate start index (convert 1-indexed to 0-indexed)
           start_idx = start_line ? [start_line - 1, 0].max : 0
-          end_idx = end_line ? [end_line - 1, total_lines - 1].min : [max_lines - 1, total_lines - 1].min
+
+          # Calculate end index based on parameters
+          if end_line
+            # User specified end_line directly
+            end_idx = [end_line - 1, total_lines - 1].min
+          elsif start_line
+            # start_line + max_lines - 1 (relative to start_line, inclusive)
+            calculated_end_line = start_line + max_lines - 1
+            end_idx = [calculated_end_line - 1, total_lines - 1].min
+          else
+            # Read from beginning with max_lines limit
+            end_idx = [max_lines - 1, total_lines - 1].min
+          end
 
           # Check if start_line exceeds file length first
           if start_idx >= total_lines
@@ -99,7 +111,7 @@ module Clacky
               path: expanded_path,
               content: nil,
               lines_read: 0,
-              error: "Invalid line range: start_line #{start_line} > end_line #{end_line}"
+              error: "Invalid line range: start_line #{start_line} > end_line #{end_line || (start_line + max_lines)}"
             }
           end
 
