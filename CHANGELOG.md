@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-02-03
+
+### Added
+- Anthropic API support with full Claude model integration
+- ClaudeCode environment compatibility (ANTHROPIC_API_KEY support)
+- Model configuration with Anthropic defaults (claude-3-5-sonnet-20241022)
+- Enhanced error handling with AgentError and ToolCallError classes
+- format_tool_results for tool result formatting in agent execution
+- Comprehensive test suite for Anthropic API and configuration
+- Absolute path handling in glob tool
+
+### Improved
+- API client architecture for multi-provider support (OpenAI + Anthropic)
+- Config loading with source tracking (file, ClaudeCode, default)
+- Agent execution loop with improved tool result handling
+- Edit tool with improved pattern matching
+- User tip display in terminal
+
+### Changed
+- Refactored Error class to AgentError base class
+- Renamed connection methods for clarity (connection → openai_connection)
+
+### Fixed
+- Handle absolute paths correctly in glob tool
+
 ## [0.6.3] - 2026-02-01
 
 ### Added
