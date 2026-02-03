@@ -2,6 +2,7 @@
 
 require "clacky"
 require "tmpdir"
+require "fileutils"
 require_relative "support/test_helpers"
 
 RSpec.configure do |config|

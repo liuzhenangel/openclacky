@@ -39,6 +39,9 @@ module Clacky
           return { error: "Pattern cannot be empty" }
         end
 
+        # Expand ~ in pattern to user's home directory
+        pattern = pattern.gsub("~", Dir.home)
+
         # Validate base_path
         unless Dir.exist?(base_path)
           return { error: "Base path does not exist: #{base_path}" }

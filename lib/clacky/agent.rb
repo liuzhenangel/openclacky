@@ -526,7 +526,7 @@ module Clacky
       @ui&.show_progress
 
       # Compress messages if needed to reduce cost
-      compress_messages_if_needed
+      compression_message = compress_messages_if_needed
 
       # Always send tools definitions to allow multi-step tool calling
       tools_to_send = @tool_registry.all_definitions
@@ -558,6 +558,9 @@ module Clacky
 
       # Clear progress indicator (change to gray and show final time)
       @ui&.clear_progress
+
+      # Show compression message after clearing progress (so it doesn't get deleted)
+      @ui&.show_info(compression_message) if compression_message
 
       track_cost(response[:usage], raw_api_usage: response[:raw_api_usage])
 
@@ -1061,7 +1064,8 @@ module Clacky
 
       final_tokens = total_message_tokens[:total]
 
-      @ui&.show_info("History compressed (~#{original_tokens} -> ~#{final_tokens} tokens, level #{@compression_level})")
+      # Return compression message (to be shown after clearing progress)
+      "History compressed (~#{original_tokens} -> ~#{final_tokens} tokens, level #{@compression_level})"
     end
 
     # Calculate how many recent messages to keep based on how much we need to compress
