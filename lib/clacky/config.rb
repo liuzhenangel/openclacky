@@ -106,5 +106,12 @@ module Clacky
         "base_url" => @base_url
       })
     end
+
+    # Determine if API calls should use Anthropic format (v1/messages)
+    # Returns true only when config was loaded from ANTHROPIC_* environment variables
+    # Config file users are expected to use OpenAI-compatible providers (OpenRouter, etc.)
+    def anthropic_format?
+      @config_source == "claude_code"
+    end
   end
 end

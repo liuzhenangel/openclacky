@@ -90,7 +90,7 @@ module Clacky
 
       # Build agent config
       agent_config = build_agent_config(config)
-      client = Clacky::Client.new(config.api_key, base_url: config.base_url)
+      client = Clacky::Client.new(config.api_key, base_url: config.base_url, anthropic_format: config.anthropic_format?)
 
       # Handle session loading/continuation
       session_manager = Clacky::SessionManager.new

@@ -8,32 +8,18 @@ module Clacky
     MAX_RETRIES = 10
     RETRY_DELAY = 5 # seconds
 
-    def initialize(api_key, base_url:, model: nil)
+    def initialize(api_key, base_url:, model: nil, anthropic_format: false)
       @api_key = api_key
       @base_url = base_url
       @model = model
+      @use_anthropic_format = anthropic_format
     end
 
     # Check if using Anthropic API format
-    # Returns true if:
-    # - Base URL contains "anthropic" (for direct Anthropic API)
-    # - Base URL contains "claude" (for compatible APIs like hongmacc.com)
-    # - Model name contains "claude" (for explicit Claude models)
+    # Determined by the anthropic_format flag passed in constructor
+    # (based on config source: ANTHROPIC_* env vars = true, config file = false)
     def anthropic_format?(model = nil)
-      base_url_lower = @base_url.to_s.downcase
-
-      # Check base_url for Anthropic indicators first
-      if base_url_lower.include?("anthropic")
-        return true
-      end
-      if base_url_lower.include?("claude")
-        return true
-      end
-
-      # Fallback to model name check
-      model ||= @model
-      return false if model.nil?
-      model.to_s.downcase.include?("claude")
+      @use_anthropic_format
     end
 
     def send_message(content, model:, max_tokens:)
