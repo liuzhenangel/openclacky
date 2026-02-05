@@ -1,15 +1,24 @@
 # frozen_string_literal: true
 
 module Clacky
-  # Simple message compressor using LLM
+  # Message compressor using LLM-based compression
   #
-  # Strategy: Insert a compression instruction message into the messages array,
-  # then compress using LLM, and replace original messages with result.
+  # Strategy: Uses LLM to intelligently compress conversation history while preserving
+  # critical information like technical decisions, code changes, error messages, and
+  # pending tasks. The compression prompt instructs the LLM to return a JSON array
+  # of compressed messages.
   #
   # Usage:
   #   compressor = MessageCompressor.new(client, model: "claude-3-5-sonnet")
   #   compressed = compressor.compress(messages)
-  #   # => Array of compressed messages
+  #   # => Array of compressed messages (system message + compressed conversation)
+  #
+  # The compress method:
+  # 1. Preserves the system message
+  # 2. Formats all other messages as readable text
+  # 3. Sends to LLM with compression instructions
+  # 4. Parses the JSON response back into message objects
+  # 5. Returns [system_message, *compressed_messages]
   #
   class MessageCompressor
     COMPRESSION_PROMPT = <<~PROMPT.freeze
@@ -37,63 +46,51 @@ module Clacky
       @model = model
     end
 
-    # Compress messages using Insert-then-Compress strategy
+    # Compress messages using Insert-then-Compress strategy with LLM
     # @param messages [Array<Hash>] Original conversation messages
     # @return [Array<Hash>] Compressed messages
     def compress(messages)
-      # For now, return a simple compressed summary without calling LLM
-      # This can be enhanced later to actually use LLM compression
-      create_simple_summary(messages)
+      # Use LLM-based compression
+      llm_compress_messages(messages)
     end
 
     private
 
-    def create_simple_summary(messages)
+    # Main LLM compression method
+    def llm_compress_messages(messages)
       # Find and preserve system message
       system_msg = messages.find { |m| m[:role] == "system" }
-
-      # Create a simple summary message
-      summary_text = build_simple_summary(messages)
-      summary = {
-        role: "user",
-        content: "[SYSTEM][COMPRESSION] #{summary_text}",
-        system_injected: true,
-        compression_strategy: :insert_then_compress
-      }
-
-      # Return system message + summary
-      [system_msg, summary].compact
-    end
-
-    def build_simple_summary(messages)
-      user_count = messages.count { |m| m[:role] == "user" }
-      assistant_count = messages.count { |m| m[:role] == "assistant" }
-      tool_count = messages.count { |m| m[:role] == "tool" }
-
-      "Previous conversation: #{user_count} user messages, #{assistant_count} assistant messages, #{tool_count} tool calls."
-    end
-
-    def insert_instruction(messages)
-      instruction = {
-        role: "system",
-        content: COMPRESSION_PROMPT,
-        compression_instruction: true
-      }
-
-      [instruction] + messages
-    end
-
-    def llm_compress(messages)
-      # Build content for LLM - include instruction and all messages
-      content = build_compression_content(messages)
-
-      response = @client.send_message(
-        content,
+      
+      # Get messages to compress (exclude system message)
+      messages_to_compress = messages.reject { |m| m[:role] == "system" }
+      
+      return [system_msg].compact if messages_to_compress.empty?
+      
+      # Build compression prompt with instruction and conversation
+      content = build_compression_content(messages_to_compress)
+      full_prompt = "#{COMPRESSION_PROMPT}\n\nConversation to compress:\n\n#{content}"
+      
+      # Prepare messages array for LLM call
+      llm_messages = [{ role: "user", content: full_prompt }]
+      
+      # Call LLM to compress
+      response = @client.send_messages(
+        llm_messages,
         model: @model,
         max_tokens: 8192
       )
-
-      response[:content]
+      
+      # Parse the compressed result
+      compressed_content = response[:content]
+      parsed_messages = parse_compressed_result(compressed_content)
+      
+      # If parsing fails or returns empty, raise error
+      if parsed_messages.nil? || parsed_messages.empty?
+        raise "LLM compression failed: unable to parse compressed messages"
+      end
+      
+      # Return system message + compressed messages
+      [system_msg, *parsed_messages].compact
     end
 
     def build_compression_content(messages)
@@ -133,7 +130,7 @@ module Clacky
       if json_content
         JSON.parse(json_content, symbolize_names: true)
       else
-        # Fallback: return original messages if parsing fails
+        # Return empty if parsing fails
         []
       end
     end

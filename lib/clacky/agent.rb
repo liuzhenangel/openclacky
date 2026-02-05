@@ -87,7 +87,8 @@ module Clacky
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
       @compressed_summaries = []  # Store summaries from previous compressions for reference
 
-      # Message compressor for LLM-based compression (Insert-then-Compress strategy)
+      # Message compressor for LLM-based intelligent compression
+      # Uses LLM to preserve key decisions, errors, and context while reducing token count
       @message_compressor = MessageCompressor.new(@client, model: @config.model)
 
       # Skill loader for skill management
@@ -1078,7 +1079,9 @@ module Clacky
 
       original_count = @messages.length
 
-      # Use MessageCompressor with Insert-then-Compress strategy (NEW DEFAULT)
+      # Use MessageCompressor for LLM-based intelligent compression
+      # The compressor sends messages to LLM with compression instructions
+      # and receives back a condensed JSON array preserving key information
       compressed_messages = @message_compressor.compress(@messages)
 
       # Replace original messages with compressed result
@@ -1089,7 +1092,7 @@ module Clacky
         level: @compression_level,
         message_count: original_count,
         timestamp: Time.now.iso8601,
-        strategy: :insert_then_compress
+        strategy: :llm_compression
       }
 
       final_tokens = total_message_tokens[:total]

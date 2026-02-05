@@ -384,6 +384,14 @@ RSpec.describe Clacky::Agent do
     end
     let(:compression_agent) { described_class.new(client, compression_config) }
 
+    before do
+      # Mock send_messages for LLM compression
+      allow(client).to receive(:send_messages) do |messages, **_options|
+        # Return a compressed summary as JSON array
+        mock_api_response(content: '[{"role":"user","content":"Compressed history summary"}]')
+      end
+    end
+
     it "compresses messages when threshold is exceeded" do
       allow(client).to receive(:send_messages_with_tools)
         .and_return(mock_api_response(content: "done"))
