@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-02-06
+
+This is a major release with significant improvements to skill system, conversation memory management, and user experience.
+
+### 🎯 Major Features
+
+**Skill System**
+- Complete skill framework allowing users to extend AI capabilities with custom workflows
+- Skills can be invoked using shorthand syntax (e.g., `/commit`, `/gem-release`)
+- Support for user-created skills in `.clacky/skills/` directory
+- Built-in skills: commit (smart Git helper), gem-release (automated publishing)
+
+**Memory Compression**
+- Intelligent message compression to handle long conversations efficiently
+- LLM-based compression strategy that preserves context while reducing tokens
+- Automatic compression triggered based on message count and token usage
+- Significant reduction in API costs for extended sessions
+
+**Configuration Improvements**
+- API key validation on startup with helpful prompts
+- Interactive configuration UI with modal components
+- Source tracking for configuration (file, environment, defaults)
+- Better error messages and user guidance
+
+### Added
+- Request user feedback tool for interactive prompts during execution
+- Version display in welcome banner
+- File size limits for file_reader tool to prevent performance issues
+- Debug logging throughout the codebase
+
+### Improved
+- CLI output formatting and readability
+- Error handling with comprehensive debug information
+- Test coverage with 367 passing tests
+- Tool call output optimization for cleaner logs
+
+### Changed
+- Simplified CLI architecture by removing unused code
+- Enhanced modal component with new configuration features
+
+### Fixed
+- Message compression edge cases
+- Various test spec improvements
+
 ## [0.6.4] - 2026-02-03
 
 ### Added
