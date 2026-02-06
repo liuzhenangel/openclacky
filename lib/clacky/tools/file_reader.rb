@@ -39,6 +39,9 @@ module Clacky
       
 
 
+      # Maximum text file size (1MB)
+      MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024
+
       def execute(path:, max_lines: 500, keyword: nil, start_line: nil, end_line: nil)
         # Expand ~ to home directory
         expanded_path = File.expand_path(path)
@@ -68,6 +71,17 @@ module Clacky
           # Check if file is binary
           if Utils::FileProcessor.binary_file_path?(expanded_path)
             return handle_binary_file(expanded_path)
+          end
+
+          # Check text file size (only for non-binary files)
+          file_size = File.size(expanded_path)
+          if file_size > MAX_TEXT_FILE_SIZE
+            return {
+              path: expanded_path,
+              content: nil,
+              size_bytes: file_size,
+              error: "Text file too large: #{format_file_size(file_size)} (max: #{format_file_size(MAX_TEXT_FILE_SIZE)}). Please use grep tool to search within this file instead."
+            }
           end
 
           # Handle keyword search with context

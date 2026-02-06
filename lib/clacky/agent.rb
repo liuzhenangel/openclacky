@@ -781,7 +781,9 @@ module Clacky
             end
             awaiting_feedback = true
           else
-            @ui&.show_tool_result(tool.format_result(result))
+            # Use tool's format_result method to get display-friendly string
+            formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
+            @ui&.show_tool_result(formatted_result)
           end
 
           results << build_success_result(call, result)
