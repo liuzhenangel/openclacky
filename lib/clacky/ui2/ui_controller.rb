@@ -686,7 +686,7 @@ module Clacky
         )
         append_output(content)
 
-        # Check if API key is configured
+        # Check if API key is configured (show warning AFTER banner)
         check_api_key_configuration
       end
 
@@ -856,7 +856,7 @@ module Clacky
 
         # Prepare masked API key for display
         masked_key = if current_config.api_key && !current_config.api_key.empty?
-          "#{current_config.api_key[0..7]}#{'*' * 20}#{current_config.api_key[-4..]}"
+          "#{current_config.api_key[0..5]}...#{current_config.api_key[-4..]}"
         else
           "not set"
         end
