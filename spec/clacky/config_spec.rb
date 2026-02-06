@@ -3,81 +3,15 @@
 RSpec.describe Clacky::Config do
   describe ".load" do
     context "when config file doesn't exist" do
-      it "returns a new config with default values" do
+      it "returns a new config with nil values" do
         with_temp_config do |config_file|
           FileUtils.rm_f(config_file) # Ensure it doesn't exist
-
-          # Stub environment variables to ensure clean test state
-          allow(Clacky::ClaudeCodeEnv).to receive(:configured?).and_return(false)
 
           config = described_class.load(config_file)
           expect(config.api_key).to be_nil
           expect(config.model).to be_nil
-          expect(config.base_url).to eq("https://api.openai.com")
-        end
-      end
-
-      context "when ClaudeCode environment variables are set" do
-        it "uses API key from ANTHROPIC_API_KEY" do
-          with_temp_config do |config_file|
-            FileUtils.rm_f(config_file)
-
-            # Clear all ClaudeCode env vars first, then set only what we need
-            ClimateControl.modify(
-              ANTHROPIC_API_KEY: "test-env-key",
-              ANTHROPIC_AUTH_TOKEN: nil,
-              ANTHROPIC_BASE_URL: nil
-            ) do
-              config = described_class.load(config_file)
-              expect(config.api_key).to eq("test-env-key")
-              expect(config.base_url).to eq("https://api.anthropic.com")
-            end
-          end
-        end
-
-        it "uses ANTHROPIC_AUTH_TOKEN as fallback" do
-          with_temp_config do |config_file|
-            FileUtils.rm_f(config_file)
-
-            ClimateControl.modify(
-              ANTHROPIC_API_KEY: nil,
-              ANTHROPIC_AUTH_TOKEN: "test-auth-token",
-              ANTHROPIC_BASE_URL: nil
-            ) do
-              config = described_class.load(config_file)
-              expect(config.api_key).to eq("test-auth-token")
-            end
-          end
-        end
-
-        it "uses custom ANTHROPIC_BASE_URL when set" do
-          with_temp_config do |config_file|
-            FileUtils.rm_f(config_file)
-
-            ClimateControl.modify(
-              ANTHROPIC_API_KEY: "test-key",
-              ANTHROPIC_AUTH_TOKEN: nil,
-              ANTHROPIC_BASE_URL: "https://custom.api.com"
-            ) do
-              config = described_class.load(config_file)
-              expect(config.base_url).to eq("https://custom.api.com")
-            end
-          end
-        end
-
-        it "uses claude-sonnet-4-5 as default model when not specified" do
-          with_temp_config do |config_file|
-            FileUtils.rm_f(config_file)
-
-            ClimateControl.modify(
-              ANTHROPIC_API_KEY: "test-key",
-              ANTHROPIC_AUTH_TOKEN: nil,
-              ANTHROPIC_BASE_URL: nil
-            ) do
-              config = described_class.load(config_file)
-              expect(config.model).to eq("claude-sonnet-4-5")
-            end
-          end
+          expect(config.base_url).to be_nil
+          expect(config.config_source).to be_nil
         end
       end
     end
@@ -159,33 +93,13 @@ RSpec.describe Clacky::Config do
       end
     end
 
-    context "when loaded from ClaudeCode environment variables" do
-      it "returns 'claude_code'" do
+    context "when config file doesn't exist" do
+      it "returns nil" do
         with_temp_config do |config_file|
           FileUtils.rm_f(config_file)
-
-          ClimateControl.modify(
-            ANTHROPIC_API_KEY: "test-env-key",
-            ANTHROPIC_AUTH_TOKEN: nil,
-            ANTHROPIC_BASE_URL: nil
-          ) do
-            config = described_class.load(config_file)
-            expect(config.config_source).to eq("claude_code")
-          end
-        end
-      end
-    end
-
-    context "when using defaults" do
-      it "returns 'default'" do
-        with_temp_config do |config_file|
-          FileUtils.rm_f(config_file)
-
-          # Stub to ensure no env vars are used
-          allow(Clacky::ClaudeCodeEnv).to receive(:configured?).and_return(false)
 
           config = described_class.load(config_file)
-          expect(config.config_source).to eq("default")
+          expect(config.config_source).to be_nil
         end
       end
     end

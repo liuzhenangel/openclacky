@@ -1,7 +1,12 @@
 # frozen_string_literal: true
 
 RSpec.describe Clacky::Agent do
-  let(:client) { instance_double(Clacky::Client) }
+  let(:client) do
+    instance_double(Clacky::Client).tap do |c|
+      # Set @api_key instance variable to avoid "API key not configured" error
+      c.instance_variable_set(:@api_key, "test-api-key")
+    end
+  end
   let(:config) do
     Clacky::AgentConfig.new(
       model: "gpt-3.5-turbo",

@@ -3,7 +3,12 @@
 require "spec_helper"
 
 RSpec.describe "Prompt Caching Feature" do
-  let(:client) { instance_double(Clacky::Client) }
+  let(:client) do
+    instance_double(Clacky::Client).tap do |c|
+      # Set @api_key instance variable to avoid "API key not configured" error
+      c.instance_variable_set(:@api_key, "test-api-key")
+    end
+  end
   
   describe "AgentConfig" do
     it "enables prompt caching by default" do
