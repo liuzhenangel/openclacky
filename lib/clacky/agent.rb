@@ -231,6 +231,9 @@ module Clacky
             @ui&.log("Iteration #{@iterations}: finish_reason=#{response[:finish_reason]}, tool_calls=#{response[:tool_calls]&.size || 'nil'}", level: :debug)
           end
 
+          # Skip if compression happened (response is nil)
+          next if response.nil?
+
           # Check if done (no more tool calls needed)
           if response[:finish_reason] == "stop" || response[:tool_calls].nil? || response[:tool_calls].empty?
             @ui&.show_assistant_message(response[:content]) if response[:content] && !response[:content].empty?
@@ -306,7 +309,7 @@ module Clacky
           error_message: e.message,
           backtrace: e.backtrace&.first(30) # Keep first 30 lines of backtrace
         }
-        
+
         # Build error result for session data, but let CLI handle error display
         result = build_result(:error, error: e.message)
         raise
@@ -557,6 +560,12 @@ module Clacky
     end
 
     def think
+      # Check API key before starting progress indicator
+      if @client.instance_variable_get(:@api_key).nil? || @client.instance_variable_get(:@api_key).empty?
+        @ui&.show_error("API key is not configured! Please run /config to set up your API key.")
+        raise AgentError, "API key is not configured"
+      end
+
       @ui&.show_progress
 
       # Check if compression is needed
@@ -774,7 +783,7 @@ module Clacky
           else
             @ui&.show_tool_result(tool.format_result(result))
           end
-          
+
           results << build_success_result(call, result)
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
@@ -1035,9 +1044,9 @@ module Clacky
 
     # Compression thresholds
     COMPRESSION_THRESHOLD = 80_000  # Trigger compression when exceeding this (in tokens)
-    MESSAGE_COUNT_THRESHOLD = 100   # Trigger compression when exceeding this (in message count)
-    TARGET_COMPRESSED_TOKENS = 70_000  # Target size after compression
-    MAX_RECENT_MESSAGES = 30  # Keep this many recent message pairs intact
+    MESSAGE_COUNT_THRESHOLD = 20   # Trigger compression when exceeding this (in message count)
+    MAX_RECENT_MESSAGES = 5  # Keep this many recent message pairs intact
+    TARGET_COMPRESSED_TOKENS = 10_000  # Target size after compression
 
     def compress_messages_if_needed
       # Check if compression is enabled
@@ -1104,7 +1113,7 @@ module Clacky
       # Rebuild message list with compression
       # Note: we need to remove the compression instruction message we just added
       original_messages = @messages[0..-2]  # All except the last (compression instruction)
-      
+
       @messages = @message_compressor.rebuild_with_compression(
         compressed_content,
         original_messages: original_messages,

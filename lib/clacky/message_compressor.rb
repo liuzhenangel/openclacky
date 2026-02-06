@@ -71,8 +71,8 @@ module Clacky
       content = build_compression_content(messages_to_compress)
       full_prompt = "#{COMPRESSION_PROMPT}\n\nConversation to compress:\n\n#{content}"
 
-      # Return the compression instruction as a user message
-      { role: "user", content: full_prompt }
+      # Return the compression instruction as a user message with system_injected marker
+      { role: "user", content: full_prompt, system_injected: true }
     end
 
     # Parse LLM response and rebuild message list with compression
