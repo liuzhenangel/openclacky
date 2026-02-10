@@ -556,28 +556,18 @@ module Clacky
     def is_safe_operation?(tool_name, tool_params = {})
       # For shell commands, use SafeShell to check safety
       if tool_name.to_s.downcase == 'shell' || tool_name.to_s.downcase == 'safe_shell'
-        begin
-          require_relative 'tools/safe_shell'
+        params = tool_params.is_a?(String) ? JSON.parse(tool_params) : tool_params
+        command = params[:command] || params['command']
+        return false unless command
 
-          # Parse tool_params if it's a JSON string
-          params = tool_params.is_a?(String) ? JSON.parse(tool_params) : tool_params
-          command = params[:command] || params['command']
-          return false unless command
-
-          # Use SafeShell to analyze the command
-          return Tools::SafeShell.command_safe_for_auto_execution?(command)
-        rescue LoadError
-          # If SafeShell not available, be conservative
-          return false
-        rescue => e
-          # In case of any error, be conservative
-          return false
-        end
+        return Tools::SafeShell.command_safe_for_auto_execution?(command)
       end
 
-      # For non-shell tools, consider them safe for now
-      # You can extend this logic for other tools
-      !editing_tool?(tool_name)
+      if tool_name.to_s.downcase == 'edit' || tool_name.to_s.downcase == 'write'
+        return false
+      end
+
+      true
     end
 
     def build_system_prompt
