@@ -707,9 +707,11 @@ module Clacky
 
       # Check if API key is configured and show warning if missing
       private def check_api_key_configuration
-        config = Clacky::Config.load
+        config = Clacky::AgentConfig.load
         
-        if config.api_key.nil? || config.api_key.empty?
+        if !config.models_configured?
+          show_warning("No models configured! Please run /config to set up your models and API keys.")
+        elsif config.api_key.nil? || config.api_key.empty?
           show_warning("API key is not configured! Please run /config to set up your API key.")
         end
       end
@@ -861,57 +863,182 @@ module Clacky
         @layout.append_output(data[:display]) unless data[:display].empty?
       end
 
-      # Show configuration modal dialog
-      # @param current_config [Clacky::Config] Current configuration object
+      # Show configuration modal dialog with multi-model support
+      # @param current_config [Clacky::AgentConfig] Current configuration object
       # @return [Hash, nil] Hash with updated config values, or nil if cancelled
       public def show_config_modal(current_config, test_callback: nil)
         modal = Components::ModalComponent.new
-
-        # Prepare masked API key for display
-        masked_key = if current_config.api_key && !current_config.api_key.empty?
-          "#{current_config.api_key[0..5]}...#{current_config.api_key[-4..]}"
-        else
-          "not set"
+        
+        loop do
+          # Build menu choices
+          choices = []
+          
+          # Add model list
+          current_config.models.each_with_index do |model, idx|
+            is_current = (idx == current_config.current_model_index)
+            model_name = model["model"] || "unnamed"
+            masked_key = mask_api_key(model["api_key"])
+            display_name = is_current ? "→ #{model_name} (#{masked_key})" : "  #{model_name} (#{masked_key})"
+            choices << {
+              name: display_name,
+              value: { action: :switch, index: idx }
+            }
+          end
+          
+          # Add action buttons
+          choices << { name: "─" * 50, disabled: true }
+          choices << { name: "[+] Add New Model", value: { action: :add } }
+          choices << { name: "[*] Edit Current Model", value: { action: :edit } }
+          choices << { name: "[-] Delete Model", value: { action: :delete } } if current_config.models.length > 1
+          choices << { name: "[X] Close", value: { action: :close } }
+          
+          # Show menu
+          result = modal.show(title: "Model Configuration", choices: choices)
+          
+          return nil if result.nil?
+          
+          case result[:action]
+          when :switch
+            current_config.switch_model(result[:index])
+            # Auto-save after switching
+            current_config.save
+            # Return to indicate config changed (need to update client)
+            return { action: :switch }
+          when :add
+            new_model = show_model_edit_form(nil, test_callback: test_callback)
+            if new_model
+              current_config.add_model(
+                model: new_model[:model],
+                api_key: new_model[:api_key],
+                base_url: new_model[:base_url]
+                # anthropic_format defaults to false in add_model method
+              )
+              # Auto-save after adding
+              current_config.save
+            end
+          when :edit
+            current_model = current_config.current_model
+            edited = show_model_edit_form(current_model, test_callback: test_callback)
+            if edited
+              # Update current model in place (keep anthropic_format unchanged)
+              current_model["api_key"] = edited[:api_key]
+              current_model["model"] = edited[:model]
+              current_model["base_url"] = edited[:base_url]
+              # Auto-save after editing
+              current_config.save
+              # Return to indicate config changed (need to update client)
+              return { action: :edit }
+            end
+          when :delete
+            if current_config.models.length <= 1
+              # Can't delete - show error and continue
+              next
+            end
+            
+            # Delete current model
+            current_config.remove_model(current_config.current_model_index)
+            # Auto-save after deleting
+            current_config.save
+          when :close
+            # Just close the modal
+            return nil
+          end
         end
-
+      end
+      
+      # Show form for editing a model
+      # @param model [Hash, nil] Existing model hash or nil for new model
+      # @return [Hash, nil] Updated model hash or nil if cancelled
+      private def show_model_edit_form(model, test_callback: nil)
+        modal = Components::ModalComponent.new
+        
+        is_new = model.nil?
+        model ||= {}
+        
+        # Prepare masked API key for display
+        masked_key = mask_api_key(model["api_key"])
+        
         # Define fields
         fields = [
           {
             name: :api_key,
-            label: "API Key (current: #{masked_key}):",
+            label: "API Key #{is_new ? '' : "(current: #{masked_key})"}:",
             default: "",
             mask: true
           },
           {
             name: :model,
-            label: "Model (current: #{current_config.model}):",
+            label: "Model #{is_new ? '' : "(current: #{model['model']})"}:",
             default: ""
           },
           {
             name: :base_url,
-            label: "Base URL (current: #{current_config.base_url}):",
+            label: "Base URL #{is_new ? '' : "(current: #{model['base_url']})"}:",
             default: ""
           }
         ]
-
+        
         # Create validator if test_callback provided
         validator = if test_callback
           lambda do |values|
-            # Merge values with current config
-            test_config = current_config.dup
-            test_config.api_key = values[:api_key] unless values[:api_key].to_s.empty?
-            test_config.model = values[:model] unless values[:model].to_s.empty?
-            test_config.base_url = values[:base_url] unless values[:base_url].to_s.empty?
+            # Merge values: use user input if provided, otherwise keep existing model value
+            api_key = values[:api_key].to_s.empty? ? model["api_key"] : values[:api_key]
+            model_name = values[:model].to_s.empty? ? model["model"] : values[:model]
+            base_url = values[:base_url].to_s.empty? ? model["base_url"] : values[:base_url]
+            anthropic_format = model["anthropic_format"] # Not editable in form, use model's value
             
-            # Call the test callback with merged config
-            test_callback.call(test_config)
+            test_config_values = {
+              "api_key" => api_key,
+              "model" => model_name,
+              "base_url" => base_url,
+              "anthropic_format" => anthropic_format
+            }
+            
+            # For new models, require all fields
+            if is_new
+              if test_config_values["api_key"].to_s.empty?
+                return { success: false, error: "API Key is required for new model" }
+              end
+              if test_config_values["model"].to_s.empty?
+                return { success: false, error: "Model name is required" }
+              end
+              if test_config_values["base_url"].to_s.empty?
+                return { success: false, error: "Base URL is required" }
+              end
+            end
+            
+            # Create a temporary config for testing
+            temp_config = Clacky::AgentConfig.new(models: [test_config_values], current_model_index: 0)
+            test_callback.call(temp_config)
           end
         else
           nil
         end
-
+        
         # Show modal and collect values
-        modal.show(title: "Configuration", fields: fields, validator: validator)
+        result = modal.show(
+          title: is_new ? "Add New Model" : "Edit Model",
+          fields: fields,
+          validator: validator
+        )
+        
+        return nil if result.nil?
+        
+        # Merge with existing model values
+        {
+          api_key: result[:api_key].to_s.empty? ? model["api_key"] : result[:api_key],
+          model: result[:model].to_s.empty? ? model["model"] : result[:model],
+          base_url: result[:base_url].to_s.empty? ? model["base_url"] : result[:base_url]
+        }
+      end
+      
+      # Mask API key for display
+      private def mask_api_key(api_key)
+        if api_key && !api_key.empty?
+          "#{api_key[0..5]}...#{api_key[-4..]}"
+        else
+          "not set"
+        end
       end
     end
   end
