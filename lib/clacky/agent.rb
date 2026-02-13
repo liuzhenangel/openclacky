@@ -31,7 +31,7 @@ module Clacky
          - Use todo_manager to create a complete TODO list FIRST
          - After creating the TODO list, START EXECUTING each task immediately
          - Don't stop after planning - continue to work on the tasks!
-      2. Always read existing code before making changes (use file_reader/glob/grep)
+      2. Always read existing code before making changes (use file_reader/glob/grep or invoke code-explorer skill)
       3. Ask clarifying questions if requirements are unclear
       4. Break down complex tasks into manageable steps
       5. **USE TOOLS to create/modify files** - don't just return code
@@ -479,13 +479,60 @@ module Clacky
       skill = parsed[:skill]
       arguments = parsed[:arguments]
 
-      # Process skill content with arguments
+      # Check if skill requires forking a subagent
+      if skill.fork_agent?
+        return execute_skill_with_subagent(skill, arguments)
+      end
+
+      # Process skill content with arguments (normal skill execution)
       expanded_content = skill.process_content(arguments)
 
       # Log skill usage
       @ui&.log("Executing skill: #{skill.identifier}", level: :info)
 
       expanded_content
+    end
+
+    # Execute a skill in a forked subagent
+    # @param skill [Skill] The skill to execute
+    # @param arguments [String] Arguments for the skill
+    # @return [String] Summary of subagent execution
+    private def execute_skill_with_subagent(skill, arguments)
+      # Log subagent fork
+      @ui&.show_info("Subagent start: #{skill.identifier}")
+
+      # Build task content from skill
+      task_content = skill.process_content(arguments)
+
+      # Fork subagent with skill configuration
+      subagent = fork_subagent(
+        model: skill.subagent_model,
+        forbidden_tools: skill.forbidden_tools_list,
+        system_prompt_suffix: task_content
+      )
+
+      # Run subagent
+      result = subagent.run(arguments)
+
+      # Generate summary
+      summary = generate_subagent_summary(subagent)
+
+      # Insert summary back to parent agent messages (replacing the instruction message)
+      # Find and replace the last message with subagent_instructions flag
+      messages_with_instructions = @messages.select { |m| m[:subagent_instructions] }
+      if messages_with_instructions.any?
+        instruction_msg = messages_with_instructions.last
+        instruction_msg[:content] = summary
+        instruction_msg.delete(:subagent_instructions)
+        instruction_msg[:subagent_result] = true
+        instruction_msg[:skill_name] = skill.identifier
+      end
+
+      # Log completion
+      @ui&.show_info("Subagent completed: #{result[:iterations]} iterations, $#{result[:total_cost_usd].round(4)}")
+
+      # Return summary as the skill execution result
+      summary
     end
 
     # Generate skill context - loads all auto-invocable skills
@@ -501,20 +548,14 @@ module Clacky
       context += "AVAILABLE SKILLS:\n"
       context += "=" * 80 + "\n\n"
       context += "CRITICAL SKILL USAGE RULES:\n"
-      context += "- When a user's request matches any available skill, this is a BLOCKING REQUIREMENT:\n"
-      context += "  invoke the relevant skill tool BEFORE generating any other response about the task\n"
-      context += "- NEVER mention a skill without actually calling the skill tool\n"
-      context += "- NEVER implement the skill's functionality yourself - always delegate to the skill\n"
-      context += "- Skills provide specialized capabilities - use them instead of manual implementation\n"
-      context += "- When users reference '/<skill-name>' (e.g., '/pptx'), they are requesting a skill\n\n"
-      context += "Workflow: Use file_reader to read the SKILL.md file, then follow its instructions.\n\n"
+      context += "- When user's request matches a skill description, you MUST use invoke_skill tool\n"
+      context += "- NEVER implement skill functionality yourself - always delegate to the skill\n"
+      context += "- Example: invoke_skill(skill_name: 'code-explorer', task: 'Analyze project structure')\n\n"
       context += "Available skills:\n\n"
 
       auto_invocable.each do |skill|
-        skill_md_path = skill.directory.join("SKILL.md")
         context += "- name: #{skill.identifier}\n"
-        context += "  description: #{skill.context_description}\n"
-        context += "  SKILL.md: #{skill_md_path}\n\n"
+        context += "  description: #{skill.context_description}\n\n"
       end
 
       context += "\n"
@@ -576,8 +617,6 @@ module Clacky
         last_user_message: last_message_preview
       }
     end
-
-    private
 
     def should_auto_execute?(tool_name, tool_params = {})
       case @config.permission_mode
@@ -815,6 +854,12 @@ module Clacky
           # Special handling for TodoManager: inject todos array
           if call[:name] == "todo_manager"
             args[:todos_storage] = @todos
+          end
+
+          # Special handling for InvokeSkill: inject agent and skill_loader
+          if call[:name] == "invoke_skill"
+            args[:agent] = self
+            args[:skill_loader] = @skill_loader
           end
 
           # For safe_shell, skip safety check if user has already confirmed
@@ -1940,6 +1985,118 @@ module Clacky
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::RunProject.new)
       @tool_registry.register(Tools::RequestUserFeedback.new)
+      @tool_registry.register(Tools::InvokeSkill.new)
+    end
+
+    # Fork a subagent with specified configuration
+    # The subagent inherits all messages and tools from parent agent
+    # Tools are not modified (for cache reuse), but forbidden tools are blocked at runtime via hooks
+    # @param model [String, nil] Model name to use (nil = use current model)
+    # @param forbidden_tools [Array<String>] List of tool names to forbid
+    # @param system_prompt_suffix [String, nil] Additional instructions (inserted as user message for cache reuse)
+    # @return [Agent] New subagent instance
+    def fork_subagent(model: nil, forbidden_tools: [], system_prompt_suffix: nil)
+      # Clone config to avoid affecting parent
+      subagent_config = @config.dup
+
+      # Switch to specified model if provided
+      if model
+        model_index = subagent_config.model_names.index(model)
+        if model_index
+          subagent_config.switch_model(model_index)
+        else
+          raise AgentError, "Model '#{model}' not found in config. Available models: #{subagent_config.model_names.join(', ')}"
+        end
+      end
+
+      # Create new client for subagent
+      subagent_client = Clacky::Client.new(
+        subagent_config.api_key,
+        base_url: subagent_config.base_url,
+        anthropic_format: subagent_config.anthropic_format?
+      )
+
+      # Create subagent (reuses all tools from parent)
+      subagent = self.class.new(
+        subagent_client,
+        subagent_config,
+        working_dir: @working_dir,
+        ui: @ui
+      )
+
+      # Deep clone messages to avoid cross-contamination
+      subagent.instance_variable_set(:@messages, deep_clone(@messages))
+
+      # Append system prompt suffix as user message (for cache reuse)
+      if system_prompt_suffix
+        messages = subagent.instance_variable_get(:@messages)
+        messages << {
+          role: "user",
+          content: "CRITICAL: TASK CONTEXT SWITCH - FORKED SUBAGENT MODE\n\n#{system_prompt_suffix}",
+          system_injected: true,
+          subagent_instructions: true
+        }
+      end
+
+      # Register hook to forbid certain tools at runtime (doesn't affect tool registry for cache)
+      if forbidden_tools.any?
+        subagent.add_hook(:before_tool_use) do |call|
+          if forbidden_tools.include?(call[:name])
+            {
+              action: :deny,
+              reason: "Tool '#{call[:name]}' is forbidden in this subagent context"
+            }
+          else
+            { action: :allow }
+          end
+        end
+      end
+
+      # Mark subagent metadata for summary generation
+      subagent.instance_variable_set(:@is_subagent, true)
+      subagent.instance_variable_set(:@parent_message_count, @messages.length)
+
+      subagent
+    end
+
+    # Generate summary from subagent execution
+    # Extracts new messages added by subagent and creates a concise summary
+    # This summary will replace the subagent instructions message in parent agent
+    # @param subagent [Agent] The subagent that completed execution
+    # @return [String] Summary text to insert into parent agent
+    def generate_subagent_summary(subagent)
+      parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
+      new_messages = subagent.messages[parent_count..-1] || []
+
+      # Extract tool calls
+      tool_calls = new_messages
+        .select { |m| m[:role] == "assistant" && m[:tool_calls] }
+        .flat_map { |m| m[:tool_calls].map { |tc| tc[:name] } }
+        .uniq
+
+      # Extract final assistant response
+      last_response = new_messages
+        .reverse
+        .find { |m| m[:role] == "assistant" && m[:content] && !m[:content].empty? }
+        &.dig(:content)
+
+      # Build summary (this will replace the subagent instructions message)
+      parts = []
+      parts << "[SUBAGENT SUMMARY]"
+      parts << "Completed in #{subagent.iterations} iterations, cost: $#{subagent.total_cost.round(4)}"
+      parts << "Tools used: #{tool_calls.join(', ')}" if tool_calls.any?
+      parts << ""
+      parts << "Results:"
+      parts << (last_response || "(No response)")
+
+      parts.join("\n")
+    end
+
+    # Deep clone helper for messages using Marshal
+    # @param obj [Object] Object to clone
+    # @return [Object] Deep cloned object
+    private def deep_clone(obj)
+      Marshal.load(Marshal.dump(obj))
     end
 
     # Format user content with optional images

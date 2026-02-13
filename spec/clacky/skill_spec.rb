@@ -11,8 +11,6 @@ RSpec.describe Clacky::Skill do
       name: test-skill
       description: A test skill for testing purposes
       user_invocable: true
-      model_invocation_allowed: true
-      forked_context: false
       ---
 
       This is the skill content.
@@ -37,7 +35,7 @@ RSpec.describe Clacky::Skill do
         expect(skill.context_description).to eq("A test skill for testing purposes")
         expect(skill.user_invocable?).to be true
         expect(skill.model_invocation_allowed?).to be true
-        expect(skill.forked_context?).to be false
+        expect(skill.fork_agent?).to be false
       end
     end
 
@@ -60,7 +58,7 @@ RSpec.describe Clacky::Skill do
         # Default: user_invocable is true by default (unless explicitly set to false)
         expect(skill.user_invocable?).to be true
         expect(skill.model_invocation_allowed?).to be true
-        expect(skill.forked_context?).to be false
+        expect(skill.fork_agent?).to be false
       end
     end
 
@@ -226,6 +224,74 @@ RSpec.describe Clacky::Skill do
 
       expect(skill.source_path).to be_a(Pathname)
       expect(skill.source_path.to_s).to eq("/some/project")
+    end
+  end
+
+  describe "subagent configuration" do
+    context "with fork_agent enabled" do
+      it "parses fork_agent configuration" do
+        skill_dir = File.join(temp_dir, "subagent-skill")
+        FileUtils.mkdir_p(skill_dir)
+        subagent_content = <<~CONTENT
+          ---
+          name: subagent-skill
+          description: A skill that forks a subagent
+          fork_agent: true
+          model: claude-haiku-3-5
+          forbidden_tools:
+            - write
+            - edit
+            - safe_shell
+          auto_summarize: true
+          ---
+
+          You are a code explorer subagent.
+        CONTENT
+        File.write(File.join(skill_dir, "SKILL.md"), subagent_content)
+
+        skill = described_class.new(skill_dir)
+
+        expect(skill.fork_agent?).to be true
+        expect(skill.subagent_model).to eq("claude-haiku-3-5")
+        expect(skill.forbidden_tools_list).to contain_exactly("write", "edit", "safe_shell")
+        expect(skill.auto_summarize?).to be true
+      end
+    end
+
+    context "without fork_agent" do
+      it "returns defaults" do
+        skill_dir = File.join(temp_dir, "normal-skill")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(skill_dir, "SKILL.md"), skill_content)
+
+        skill = described_class.new(skill_dir)
+
+        expect(skill.fork_agent?).to be false
+        expect(skill.subagent_model).to be_nil
+        expect(skill.forbidden_tools_list).to eq([])
+        expect(skill.auto_summarize?).to be true  # Default is true
+      end
+    end
+
+    context "with auto_summarize disabled" do
+      it "returns false for auto_summarize?" do
+        skill_dir = File.join(temp_dir, "no-summary-skill")
+        FileUtils.mkdir_p(skill_dir)
+        no_summary_content = <<~CONTENT
+          ---
+          name: no-summary
+          fork_agent: true
+          auto_summarize: false
+          ---
+
+          Content
+        CONTENT
+        File.write(File.join(skill_dir, "SKILL.md"), no_summary_content)
+
+        skill = described_class.new(skill_dir)
+
+        expect(skill.auto_summarize?).to be false
+      end
     end
   end
 end

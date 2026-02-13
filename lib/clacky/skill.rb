@@ -18,12 +18,17 @@ module Clacky
       agent
       argument-hint
       hooks
+      fork_agent
+      model
+      forbidden_tools
+      auto_summarize
     ].freeze
 
     attr_reader :directory, :frontmatter, :source_path
     attr_reader :name, :description, :content
     attr_reader :disable_model_invocation, :user_invocable
     attr_reader :allowed_tools, :context, :agent_type, :argument_hint, :hooks
+    attr_reader :fork_agent, :model, :forbidden_tools, :auto_summarize
 
     # @param directory [Pathname, String] Path to the skill directory
     # @param source_path [Pathname, String, nil] Optional source path for priority resolution
@@ -52,10 +57,28 @@ module Clacky
       !@disable_model_invocation
     end
 
-    # Check if skill runs in a forked subagent context
+    # Check if this skill should fork a subagent
     # @return [Boolean]
-    def forked_context?
-      @context == "fork"
+    def fork_agent?
+      @fork_agent == true
+    end
+
+    # Get the model to use for the subagent (if fork_agent is true)
+    # @return [String, nil]
+    def subagent_model
+      @model
+    end
+
+    # Get the list of forbidden tools for the subagent
+    # @return [Array<String>]
+    def forbidden_tools_list
+      @forbidden_tools || []
+    end
+
+    # Check if subagent should auto-summarize results
+    # @return [Boolean]
+    def auto_summarize?
+      @auto_summarize != false
     end
 
     # Get the slash command for this skill
@@ -114,7 +137,9 @@ module Clacky
         source_path: @source_path.to_s,
         user_invocable: user_invocable?,
         model_invocation_allowed: model_invocation_allowed?,
-        forked_context: forked_context?,
+        fork_agent: fork_agent?,
+        subagent_model: @model,
+        forbidden_tools: @forbidden_tools,
         allowed_tools: @allowed_tools,
         argument_hint: @argument_hint,
         content_length: @content.length
@@ -179,6 +204,12 @@ module Clacky
       @agent_type = @frontmatter["agent"]
       @argument_hint = @frontmatter["argument-hint"]
       @hooks = @frontmatter["hooks"]
+      
+      # Subagent configuration
+      @fork_agent = @frontmatter["fork_agent"]
+      @model = @frontmatter["model"]
+      @forbidden_tools = @frontmatter["forbidden_tools"]
+      @auto_summarize = @frontmatter["auto_summarize"]
     end
 
     def validate_frontmatter
@@ -193,9 +224,9 @@ module Clacky
         end
       end
 
-      # Validate context
-      if @context && @context != "fork"
-        raise Clacky::AgentError, "Invalid context '#{@context}'. Only 'fork' is supported."
+      # Validate forbidden_tools format
+      if @forbidden_tools && !@forbidden_tools.is_a?(Array)
+        raise Clacky::AgentError, "forbidden_tools must be an array of tool names"
       end
 
       # Validate allowed-tools format

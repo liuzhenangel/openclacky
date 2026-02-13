@@ -127,6 +127,13 @@ module Clacky
       @skills_by_command[command]
     end
 
+    # Find a skill by its name (identifier)
+    # @param name [String] Skill identifier (e.g., "code-explorer", "pptx")
+    # @return [Skill, nil]
+    def find_by_name(name)
+      @skills[name]
+    end
+
     # Get skills that can be invoked by user
     # @return [Array<Skill>]
     def user_invocable_skills
