@@ -878,7 +878,15 @@ module Clacky
             is_current = (idx == current_config.current_model_index)
             model_name = model["model"] || "unnamed"
             masked_key = mask_api_key(model["api_key"])
-            display_name = is_current ? "→ #{model_name} (#{masked_key})" : "  #{model_name} (#{masked_key})"
+            
+            # Add type badge if present
+            type_badge = case model["type"]
+                        when "default" then "[default] "
+                        when "lite" then "[lite] "
+                        else ""
+                        end
+            
+            display_name = "#{type_badge}#{model_name} (#{masked_key})"
             choices << {
               name: display_name,
               value: { action: :switch, index: idx }

@@ -2001,11 +2001,22 @@ module Clacky
 
       # Switch to specified model if provided
       if model
-        model_index = subagent_config.model_names.index(model)
-        if model_index
-          subagent_config.switch_model(model_index)
+        if model == "lite"
+          # Special keyword: use lite model if available, otherwise fall back to default
+          lite_model = subagent_config.lite_model
+          if lite_model
+            model_index = subagent_config.models.index(lite_model)
+            subagent_config.switch_model(model_index) if model_index
+          end
+          # If no lite model, just use current (default) model
         else
-          raise AgentError, "Model '#{model}' not found in config. Available models: #{subagent_config.model_names.join(', ')}"
+          # Regular model name lookup
+          model_index = subagent_config.model_names.index(model)
+          if model_index
+            subagent_config.switch_model(model_index)
+          else
+            raise AgentError, "Model '#{model}' not found in config. Available models: #{subagent_config.model_names.join(', ')}"
+          end
         end
       end
 

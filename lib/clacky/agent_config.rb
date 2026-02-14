@@ -46,6 +46,101 @@ module Clacky
     end
   end
 
+  # Clacky environment variable layer
+  # Provides configuration from CLACKY_XXX environment variables
+  module ClackyEnv
+    # Environment variable names for default model
+    ENV_API_KEY = "CLACKY_API_KEY"
+    ENV_BASE_URL = "CLACKY_BASE_URL"
+    ENV_MODEL = "CLACKY_MODEL"
+    ENV_ANTHROPIC_FORMAT = "CLACKY_ANTHROPIC_FORMAT"
+
+    # Environment variable names for lite model
+    ENV_LITE_API_KEY = "CLACKY_LITE_API_KEY"
+    ENV_LITE_BASE_URL = "CLACKY_LITE_BASE_URL"
+    ENV_LITE_MODEL = "CLACKY_LITE_MODEL"
+    ENV_LITE_ANTHROPIC_FORMAT = "CLACKY_LITE_ANTHROPIC_FORMAT"
+
+    # Default model name (only for model, not base_url)
+    DEFAULT_MODEL = "claude-sonnet-4-5"
+
+    class << self
+      # Check if default model is configured via environment variables
+      def default_configured?
+        !default_api_key.nil? && !default_api_key.empty?
+      end
+
+      # Check if lite model is configured via environment variables
+      def lite_configured?
+        !lite_api_key.nil? && !lite_api_key.empty?
+      end
+
+      # Get default model API key
+      def default_api_key
+        ENV[ENV_API_KEY] if ENV[ENV_API_KEY] && !ENV[ENV_API_KEY].empty?
+      end
+
+      # Get default model base URL (no default, must be explicitly set)
+      def default_base_url
+        ENV[ENV_BASE_URL] if ENV[ENV_BASE_URL] && !ENV[ENV_BASE_URL].empty?
+      end
+
+      # Get default model name
+      def default_model
+        ENV[ENV_MODEL] && !ENV[ENV_MODEL].empty? ? ENV[ENV_MODEL] : DEFAULT_MODEL
+      end
+
+      # Get default model anthropic_format flag
+      def default_anthropic_format
+        return true if ENV[ENV_ANTHROPIC_FORMAT].nil? || ENV[ENV_ANTHROPIC_FORMAT].empty?
+        ENV[ENV_ANTHROPIC_FORMAT].downcase == "true"
+      end
+
+      # Get default model configuration as a hash
+      def default_model_config
+        {
+          "type" => "default",
+          "api_key" => default_api_key,
+          "base_url" => default_base_url,
+          "model" => default_model,
+          "anthropic_format" => default_anthropic_format
+        }.compact
+      end
+
+      # Get lite model API key
+      def lite_api_key
+        ENV[ENV_LITE_API_KEY] if ENV[ENV_LITE_API_KEY] && !ENV[ENV_LITE_API_KEY].empty?
+      end
+
+      # Get lite model base URL (no default, must be explicitly set)
+      def lite_base_url
+        ENV[ENV_LITE_BASE_URL] if ENV[ENV_LITE_BASE_URL] && !ENV[ENV_LITE_BASE_URL].empty?
+      end
+
+      # Get lite model name
+      def lite_model
+        ENV[ENV_LITE_MODEL] && !ENV[ENV_LITE_MODEL].empty? ? ENV[ENV_LITE_MODEL] : "claude-haiku-4"
+      end
+
+      # Get lite model anthropic_format flag
+      def lite_anthropic_format
+        return true if ENV[ENV_LITE_ANTHROPIC_FORMAT].nil? || ENV[ENV_LITE_ANTHROPIC_FORMAT].empty?
+        ENV[ENV_LITE_ANTHROPIC_FORMAT].downcase == "true"
+      end
+
+      # Get lite model configuration as a hash
+      def lite_model_config
+        {
+          "type" => "lite",
+          "api_key" => lite_api_key,
+          "base_url" => lite_base_url,
+          "model" => lite_model,
+          "anthropic_format" => lite_anthropic_format
+        }.compact
+      end
+    end
+  end
+
   class AgentConfig
     CONFIG_DIR = File.join(Dir.home, ".clacky")
     CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
@@ -84,14 +179,47 @@ module Clacky
       # Parse models from config
       models = parse_models(data)
 
-      # If no models configured, check ClaudeCode environment variables
-      if models.empty? && ClaudeCodeEnv.configured?
-        models = [{
-          "api_key" => ClaudeCodeEnv.api_key,
-          "base_url" => ClaudeCodeEnv.base_url,
-          "model" => CLAUDE_DEFAULT_MODEL,
-          "anthropic_format" => true
-        }]
+      # Priority: config file > CLACKY_XXX env vars > ClaudeCode env vars
+      if models.empty?
+        # Try CLACKY_XXX environment variables first
+        if ClackyEnv.default_configured?
+          models << ClackyEnv.default_model_config
+        # Fallback to ClaudeCode environment variables
+        elsif ClaudeCodeEnv.configured?
+          models << {
+            "type" => "default",
+            "api_key" => ClaudeCodeEnv.api_key,
+            "base_url" => ClaudeCodeEnv.base_url,
+            "model" => CLAUDE_DEFAULT_MODEL,
+            "anthropic_format" => true
+          }
+        end
+
+        # Add CLACKY_LITE_XXX if configured (only when loading from env)
+        if ClackyEnv.lite_configured?
+          models << ClackyEnv.lite_model_config
+        end
+      else
+        # Config file exists, but check if we need to add env-based models
+        # Only add if no model with that type exists
+        has_default = models.any? { |m| m["type"] == "default" }
+        has_lite = models.any? { |m| m["type"] == "lite" }
+
+        # Add CLACKY default if not in config and env is set
+        if !has_default && ClackyEnv.default_configured?
+          models << ClackyEnv.default_model_config
+        end
+
+        # Add CLACKY lite if not in config and env is set
+        if !has_lite && ClackyEnv.lite_configured?
+          models << ClackyEnv.lite_model_config
+        end
+
+        # Ensure at least one model has type: default
+        # If no model has type: default, assign it to the first model
+        unless models.any? { |m| m["type"] == "default" }
+          models.first["type"] = "default" if models.any?
+        end
       end
 
       new(models: models)
@@ -127,14 +255,21 @@ module Clacky
     end
 
     # Switch to model by index
+    # Updates the type: default to the selected model
     # Returns true if switched, false if index out of range
     def switch_model(index)
-      if index >= 0 && index < @models.length
-        @current_model_index = index
-        true
-      else
-        false
-      end
+      return false if index < 0 || index >= @models.length
+      
+      # Remove type: default from all models
+      @models.each { |m| m.delete("type") if m["type"] == "default" }
+      
+      # Set type: default on the selected model
+      @models[index]["type"] = "default"
+      
+      # Update current_model_index for backward compatibility
+      @current_model_index = index
+      
+      true
     end
 
     # List all model names
@@ -181,13 +316,68 @@ module Clacky
     end
 
     # Add a new model configuration
-    def add_model(model:, api_key:, base_url:, anthropic_format: false)
+    def add_model(model:, api_key:, base_url:, anthropic_format: false, type: nil)
       @models << {
         "api_key" => api_key,
         "base_url" => base_url,
         "model" => model,
-        "anthropic_format" => anthropic_format
-      }
+        "anthropic_format" => anthropic_format,
+        "type" => type
+      }.compact
+    end
+
+    # Find model by type (default or lite)
+    # Returns the model hash or nil if not found
+    def find_model_by_type(type)
+      @models.find { |m| m["type"] == type }
+    end
+
+    # Get the default model (type: default)
+    # Falls back to current_model for backward compatibility
+    def default_model
+      find_model_by_type("default") || current_model
+    end
+
+    # Get the lite model (type: lite)
+    # Returns nil if no lite model configured
+    def lite_model
+      find_model_by_type("lite")
+    end
+
+    # Get current model configuration
+    # Looks for type: default first, falls back to current_model_index
+    def current_model
+      return nil if @models.empty?
+      default_model = find_model_by_type("default")
+      return default_model if default_model
+      
+      # Fallback to index-based for backward compatibility
+      @models[@current_model_index]
+    end
+
+    # Set a model's type (default or lite)
+    # Ensures only one model has each type
+    # @param index [Integer] the model index
+    # @param type [String, nil] "default", "lite", or nil to remove type
+    # Returns true if successful
+    def set_model_type(index, type)
+      return false if index < 0 || index >= @models.length
+      return false unless ["default", "lite", nil].include?(type)
+
+      if type
+        # Remove type from any other model that has it
+        @models.each do |m|
+          m.delete("type") if m["type"] == type
+        end
+        
+        # Set type on target model
+        @models[index]["type"] = type
+      else
+        # Remove type from target model
+        @models[index].delete("type")
+      end
+
+      true
     end
 
     # Remove a model by index

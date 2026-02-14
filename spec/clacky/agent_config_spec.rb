@@ -462,4 +462,257 @@ RSpec.describe Clacky::AgentConfig do
       expect(config.is_plan_only?).to be false
     end
   end
+
+  describe "type field support" do
+    describe "#find_model_by_type" do
+      it "returns model with specified type" do
+        models = [
+          { "model" => "sonnet", "type" => "default" },
+          { "model" => "haiku", "type" => "lite" },
+          { "model" => "opus" }
+        ]
+        config = described_class.new(models: models)
+        
+        expect(config.find_model_by_type("default")["model"]).to eq("sonnet")
+        expect(config.find_model_by_type("lite")["model"]).to eq("haiku")
+        expect(config.find_model_by_type("other")).to be_nil
+      end
+    end
+
+    describe "#lite_model" do
+      it "returns lite model if configured" do
+        models = [
+          { "model" => "sonnet", "type" => "default" },
+          { "model" => "haiku", "type" => "lite" }
+        ]
+        config = described_class.new(models: models)
+        
+        expect(config.lite_model["model"]).to eq("haiku")
+      end
+
+      it "returns nil if no lite model" do
+        models = [{ "model" => "sonnet", "type" => "default" }]
+        config = described_class.new(models: models)
+        
+        expect(config.lite_model).to be_nil
+      end
+    end
+
+    describe "#current_model" do
+      it "returns model with type: default" do
+        models = [
+          { "model" => "opus" },
+          { "model" => "sonnet", "type" => "default" },
+          { "model" => "haiku", "type" => "lite" }
+        ]
+        config = described_class.new(models: models)
+        
+        expect(config.current_model["model"]).to eq("sonnet")
+      end
+
+      it "falls back to index-based for backward compatibility" do
+        models = [
+          { "model" => "opus" },
+          { "model" => "sonnet" }
+        ]
+        config = described_class.new(models: models, current_model_index: 1)
+        
+        expect(config.current_model["model"]).to eq("sonnet")
+      end
+    end
+
+    describe "#switch_model" do
+      it "sets type: default on selected model and removes from others" do
+        models = [
+          { "model" => "opus", "type" => "default" },
+          { "model" => "sonnet" },
+          { "model" => "haiku", "type" => "lite" }
+        ]
+        config = described_class.new(models: models)
+        
+        config.switch_model(1)
+        
+        expect(config.models[0]["type"]).to be_nil
+        expect(config.models[1]["type"]).to eq("default")
+        expect(config.models[2]["type"]).to eq("lite")
+      end
+
+      it "preserves lite type when switching" do
+        models = [
+          { "model" => "opus", "type" => "default" },
+          { "model" => "haiku", "type" => "lite" }
+        ]
+        config = described_class.new(models: models)
+        
+        config.switch_model(1)
+        
+        expect(config.models[0]["type"]).to be_nil
+        expect(config.models[1]["type"]).to eq("default")
+      end
+    end
+
+    describe "#set_model_type" do
+      it "sets type on specified model" do
+        models = [
+          { "model" => "opus" },
+          { "model" => "sonnet" }
+        ]
+        config = described_class.new(models: models)
+        
+        config.set_model_type(0, "default")
+        config.set_model_type(1, "lite")
+        
+        expect(config.models[0]["type"]).to eq("default")
+        expect(config.models[1]["type"]).to eq("lite")
+      end
+
+      it "ensures only one model has each type" do
+        models = [
+          { "model" => "opus", "type" => "default" },
+          { "model" => "sonnet" }
+        ]
+        config = described_class.new(models: models)
+        
+        config.set_model_type(1, "default")
+        
+        expect(config.models[0]["type"]).to be_nil
+        expect(config.models[1]["type"]).to eq("default")
+      end
+
+      it "removes type when set to nil" do
+        models = [{ "model" => "opus", "type" => "default" }]
+        config = described_class.new(models: models)
+        
+        config.set_model_type(0, nil)
+        
+        expect(config.models[0]["type"]).to be_nil
+      end
+    end
+  end
+
+  describe "ClackyEnv environment variables" do
+    describe "default model" do
+      it "loads from CLACKY_XXX env vars when config is empty" do
+        with_env(
+          "CLACKY_API_KEY" => "sk-clacky-test",
+          "CLACKY_BASE_URL" => "https://api.clacky.test",
+          "CLACKY_MODEL" => "claude-test-model",
+          "CLACKY_ANTHROPIC_FORMAT" => "false"
+        ) do
+          with_temp_config do |config_file|
+            FileUtils.rm_f(config_file)
+            
+            config = described_class.load(config_file)
+            
+            expect(config.models.length).to eq(1)
+            expect(config.models.first["type"]).to eq("default")
+            expect(config.models.first["api_key"]).to eq("sk-clacky-test")
+            expect(config.models.first["base_url"]).to eq("https://api.clacky.test")
+            expect(config.models.first["model"]).to eq("claude-test-model")
+            expect(config.models.first["anthropic_format"]).to be false
+          end
+        end
+      end
+
+      it "uses default model name if CLACKY_MODEL not set" do
+        with_env("CLACKY_API_KEY" => "sk-test") do
+          with_temp_config do |config_file|
+            FileUtils.rm_f(config_file)
+            
+            config = described_class.load(config_file)
+            
+            expect(config.models.first["model"]).to eq("claude-sonnet-4-5")
+          end
+        end
+      end
+    end
+
+    describe "lite model" do
+      it "loads from CLACKY_LITE_XXX env vars" do
+        with_env(
+          "CLACKY_API_KEY" => "sk-default",
+          "CLACKY_LITE_API_KEY" => "sk-lite",
+          "CLACKY_LITE_MODEL" => "claude-haiku-test"
+        ) do
+          with_temp_config do |config_file|
+            FileUtils.rm_f(config_file)
+            
+            config = described_class.load(config_file)
+            
+            expect(config.models.length).to eq(2)
+            expect(config.models[0]["type"]).to eq("default")
+            expect(config.models[1]["type"]).to eq("lite")
+            expect(config.models[1]["api_key"]).to eq("sk-lite")
+            expect(config.models[1]["model"]).to eq("claude-haiku-test")
+          end
+        end
+      end
+    end
+
+    describe "priority: config file > CLACKY_XXX > ClaudeCode" do
+      it "prefers config file over environment variables" do
+        with_env(
+          "CLACKY_API_KEY" => "sk-env",
+          "ANTHROPIC_API_KEY" => "sk-claude"
+        ) do
+          with_temp_config([{ "model" => "from-file", "api_key" => "sk-file", "type" => "default" }]) do |config_file|
+            config = described_class.load(config_file)
+            
+            expect(config.models.length).to eq(1)
+            expect(config.models.first["api_key"]).to eq("sk-file")
+          end
+        end
+      end
+
+      it "prefers CLACKY_XXX over ClaudeCode env vars" do
+        with_env(
+          "CLACKY_API_KEY" => "sk-clacky",
+          "ANTHROPIC_API_KEY" => "sk-claude"
+        ) do
+          with_temp_config do |config_file|
+            FileUtils.rm_f(config_file)
+            
+            config = described_class.load(config_file)
+            
+            expect(config.models.first["api_key"]).to eq("sk-clacky")
+          end
+        end
+      end
+
+      it "falls back to ClaudeCode if CLACKY_XXX not set" do
+        with_env("ANTHROPIC_API_KEY" => "sk-claude") do
+          with_temp_config do |config_file|
+            FileUtils.rm_f(config_file)
+            
+            config = described_class.load(config_file)
+            
+            expect(config.models.first["api_key"]).to eq("sk-claude")
+            expect(config.models.first["type"]).to eq("default")
+          end
+        end
+      end
+    end
+  end
+
+  # Helper to set environment variables temporarily
+  def with_env(vars)
+    old_values = {}
+    vars.each do |key, value|
+      old_values[key] = ENV[key]
+      if value.nil?
+        ENV.delete(key)
+      else
+        ENV[key] = value
+      end
+    end
+    yield
+  ensure
+    old_values.each do |key, value|
+      if value.nil?
+        ENV.delete(key)
+      else
+        ENV[key] = value
+      end
+    end
+  end
 end
