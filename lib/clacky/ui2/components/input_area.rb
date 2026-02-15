@@ -237,8 +237,11 @@ module Clacky
           when :escape 
             if @command_suggestions.visible
               @command_suggestions.hide
+              { action: nil }
+            else
+              # Trigger time machine when ESC is pressed and suggestions not visible
+              { action: :time_machine }
             end
-            { action: nil }
           else
             if key.is_a?(String) && key.length >= 1 && key.ord >= 32
               insert_char(key)

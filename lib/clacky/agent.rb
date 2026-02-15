@@ -16,6 +16,7 @@ require_relative "agent/session_serializer"
 require_relative "agent/skill_manager"
 require_relative "agent/system_prompt_builder"
 require_relative "agent/llm_caller"
+require_relative "agent/time_machine"
 
 module Clacky
   class Agent
@@ -27,6 +28,7 @@ module Clacky
     include SkillManager
     include SystemPromptBuilder
     include LlmCaller
+    include TimeMachine
 
     attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
                 :cache_stats, :cost_source, :ui, :skill_loader
@@ -69,6 +71,9 @@ module Clacky
 
       # Skill loader for skill management
       @skill_loader = SkillLoader.new(@working_dir)
+
+      # Initialize Time Machine
+      init_time_machine
 
       # Register built-in tools
       register_builtin_tools
@@ -126,6 +131,9 @@ module Clacky
     end
 
     def run(user_input, images: [])
+      # Start new task for Time Machine
+      task_id = start_new_task
+      
       @start_time = Time.now
       @task_cost_source = :estimated  # Reset for new task
       # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
@@ -155,7 +163,7 @@ module Clacky
 
       # Format user message with images if provided
       user_content = format_user_content(user_input, images)
-      @messages << { role: "user", content: user_content }
+      @messages << { role: "user", content: user_content, task_id: task_id }
       @total_tasks += 1
 
       @hooks.trigger(:on_start, user_input)
@@ -235,6 +243,13 @@ module Clacky
         end
 
         result = build_result(:success)
+        
+        # Save snapshots of modified files for Time Machine
+        if @modified_files_in_task && !@modified_files_in_task.empty?
+          save_modified_files_snapshot(@modified_files_in_task)
+          @modified_files_in_task = []  # Reset for next task
+        end
+        
         @ui&.show_complete(
           iterations: result[:iterations],
           cost: result[:total_cost_usd],
@@ -336,7 +351,7 @@ module Clacky
       end
 
       # Add assistant response to messages
-      msg = { role: "assistant" }
+      msg = { role: "assistant", task_id: @current_task_id }
       # Always include content field (some APIs require it even with tool_calls)
       # Use empty string instead of null for better compatibility
       msg[:content] = response[:content] || ""
@@ -433,6 +448,11 @@ module Clacky
             args[:skill_loader] = @skill_loader
           end
 
+          # Special handling for Time Machine tools: inject agent
+          if ["undo_task", "redo_task", "list_tasks"].include?(call[:name])
+            args[:agent] = self
+          end
+
           # For safe_shell, skip safety check if user has already confirmed
           if call[:name] == "safe_shell" || call[:name] == "shell"
             args[:skip_safety_check] = true
@@ -448,6 +468,9 @@ module Clacky
 
           # Clear progress if shown
           @ui&.clear_progress if potentially_slow_tool?(call[:name], args)
+
+          # Track modified files for Time Machine snapshots
+          track_modified_files(call[:name], args)
 
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
@@ -503,7 +526,7 @@ module Clacky
       return if tool_results.empty?
 
       formatted_messages = @client.format_tool_results(response, tool_results, model: current_model)
-      formatted_messages.each { |msg| @messages << msg }
+      formatted_messages.each { |msg| @messages << msg.merge(task_id: @current_task_id) }
     end
 
     # Interrupt the agent's current run
@@ -574,6 +597,9 @@ module Clacky
       @tool_registry.register(Tools::RunProject.new)
       @tool_registry.register(Tools::RequestUserFeedback.new)
       @tool_registry.register(Tools::InvokeSkill.new)
+      @tool_registry.register(Tools::UndoTask.new)
+      @tool_registry.register(Tools::RedoTask.new)
+      @tool_registry.register(Tools::ListTasks.new)
     end
 
     # Fork a subagent with specified configuration
@@ -714,6 +740,20 @@ module Clacky
       end
 
       content
+    end
+
+    # Track modified files for Time Machine snapshots
+    # @param tool_name [String] Name of the tool that was executed
+    # @param args [Hash] Arguments passed to the tool
+    def track_modified_files(tool_name, args)
+      @modified_files_in_task ||= []
+      
+      case tool_name
+      when "write", "edit"
+        file_path = args[:path]
+        full_path = File.expand_path(file_path, @working_dir)
+        @modified_files_in_task << full_path unless @modified_files_in_task.include?(full_path)
+      end
     end
   end
 end

@@ -28,6 +28,11 @@ module Clacky
         # Restore previous_total_tokens for accurate delta calculation across sessions
         @previous_total_tokens = session_data.dig(:stats, :previous_total_tokens) || 0
 
+        # Restore Time Machine state
+        @task_parents = session_data.dig(:time_machine, :task_parents) || {}
+        @current_task_id = session_data.dig(:time_machine, :current_task_id) || 0
+        @active_task_id = session_data.dig(:time_machine, :active_task_id) || 0
+
         # Check if the session ended with an error
         last_status = session_data.dig(:stats, :last_status)
         last_error = session_data.dig(:stats, :last_error)
@@ -92,6 +97,11 @@ module Clacky
           updated_at: Time.now.iso8601,
           working_dir: @working_dir,
           todos: @todos,  # Include todos in session data
+          time_machine: {  # Include Time Machine state
+            task_parents: @task_parents || {},
+            current_task_id: @current_task_id || 0,
+            active_task_id: @active_task_id || 0
+          },
           config: {
             models: @config.models,
             permission_mode: @config.permission_mode.to_s,

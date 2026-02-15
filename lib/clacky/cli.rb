@@ -170,7 +170,56 @@ module Clacky
         ui_controller.append_output("")
       end
 
+      private def handle_time_machine_command(ui_controller, agent, session_manager)
+        # Get task history from agent
+        history = agent.get_task_history(limit: 10)
+        
+        if history.empty?
+          ui_controller.show_info("No task history available yet.")
+          return
+        end
 
+        # Show time machine menu
+        selected_task_id = ui_controller.show_time_machine_menu(history)
+        
+        # If user cancelled, return
+        return if selected_task_id.nil?
+
+        # Get current active task for comparison
+        current_task_id = agent.instance_variable_get(:@active_task_id)
+        
+        # Perform the switch
+        begin
+          if selected_task_id < current_task_id
+            # Undo to selected task
+            ui_controller.show_info("Undoing to Task #{selected_task_id}...")
+            result = agent.switch_to_task(selected_task_id)
+            if result[:success]
+              ui_controller.show_success("✓ #{result[:message]}")
+            else
+              ui_controller.show_error(result[:message])
+              return
+            end
+          else
+            # Redo to selected task
+            ui_controller.show_info("Redoing to Task #{selected_task_id}...")
+            result = agent.switch_to_task(selected_task_id)
+            if result[:success]
+              ui_controller.show_success("✓ #{result[:message]}")
+            else
+              ui_controller.show_error(result[:message])
+              return
+            end
+          end
+
+          # Save session after switch
+          if session_manager
+            session_manager.save(agent.to_session_data(status: :success))
+          end
+        rescue StandardError => e
+          ui_controller.show_error("Time Machine failed: #{e.message}")
+        end
+      end
 
       def validate_working_directory(path)
         working_dir = path || Dir.pwd
@@ -407,6 +456,11 @@ module Clacky
           agent_config.permission_mode = new_mode.to_sym
         end
 
+        # Set up time machine handler (ESC key)
+        ui_controller.on_time_machine do
+          handle_time_machine_command(ui_controller, agent, session_manager)
+        end
+
         # Set up interrupt handler
         ui_controller.on_interrupt do |input_was_empty:|
           if (not current_task_thread&.alive?) && input_was_empty
@@ -447,6 +501,9 @@ module Clacky
           case input.downcase.strip
           when "/config"
             handle_config_command(ui_controller, client, agent_config, agent)
+            next
+          when "/undo"
+            handle_time_machine_command(ui_controller, agent, session_manager)
             next
           when "/clear"
             # Show user input first

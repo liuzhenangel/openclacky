@@ -45,6 +45,7 @@ module Clacky
         @running = false
         @input_callback = nil
         @interrupt_callback = nil
+        @time_machine_callback = nil
         @tasks_count = 0
         @total_cost = 0.0
         @progress_thread = nil
@@ -160,6 +161,12 @@ module Clacky
       # @param block [Proc] Callback to execute on mode toggle
       def on_mode_toggle(&block)
         @mode_toggle_callback = block
+      end
+
+      # Set callback for time machine (ESC key)
+      # @param block [Proc] Callback to execute on time machine
+      def on_time_machine(&block)
+        @time_machine_callback = block
       end
 
       # Set skill loader for command suggestions
@@ -806,6 +813,9 @@ module Clacky
           @input_callback&.call("/help", [], display: result[:data][:display])
         when :toggle_mode
           toggle_mode
+        when :time_machine
+          # Trigger time machine callback
+          @time_machine_callback&.call
         end
 
         # Always re-render input area after key handling
@@ -952,6 +962,48 @@ module Clacky
             return nil
           end
         end
+      end
+
+      # Show time machine menu for task undo/redo
+      # @param history [Array<Hash>] Task history with format: [{task_id, summary, status, has_branches}]
+      # @return [Integer, nil] Selected task ID or nil if cancelled
+      public def show_time_machine_menu(history)
+        modal = Components::ModalComponent.new
+        
+        # Build menu choices from history
+        choices = history.map do |task|
+          # Build visual indicator
+          indicator = if task[:status] == :current
+            "→ "  # Current task
+          elsif task[:status] == :future
+            "↯ "  # Future task (after undo)
+          else
+            "  "  # Past task
+          end
+          
+          # Add branch indicator
+          indicator += "⎇ " if task[:has_branches]
+          
+          # Truncate summary to fit on screen
+          max_summary_length = 60
+          summary = task[:summary]
+          if summary.length > max_summary_length
+            summary = summary[0...max_summary_length] + "..."
+          end
+          
+          {
+            name: "#{indicator}Task #{task[:task_id]}: #{summary}",
+            value: task[:task_id]
+          }
+        end
+        
+        # Show modal
+        result = modal.show(
+          title: "Time Machine - Select Task to Navigate",
+          choices: choices
+        )
+        
+        result # Return selected task_id or nil
       end
       
       # Show form for editing a model
