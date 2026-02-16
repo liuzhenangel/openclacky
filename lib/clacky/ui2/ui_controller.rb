@@ -51,6 +51,7 @@ module Clacky
         @progress_thread = nil
         @progress_start_time = nil
         @progress_message = nil
+        @last_diff_lines = nil
       end
 
       # Start the UI controller
@@ -643,18 +644,31 @@ module Clacky
         diff = Diffy::Diff.new(old_content, new_content, context: 3)
         diff_lines = diff.to_s(:color).lines
 
+        # Store for fullscreen toggle
+        @last_diff_lines = diff_lines
+
         # Show diff without line numbers
         diff_lines.take(max_lines).each do |line|
           append_output(line.chomp)
         end
 
         if diff_lines.size > max_lines
-          append_output("\n... (#{diff_lines.size - max_lines} more lines, diff truncated)")
+          append_output("\n... (#{diff_lines.size - max_lines} more lines, diff truncated. Press Ctrl+O to expand)")
         end
       rescue LoadError
         # Fallback if diffy is not available
         append_output("   Old size: #{old_content.bytesize} bytes")
         append_output("   New size: #{new_content.bytesize} bytes")
+        @last_diff_lines = nil
+      end
+
+      # Show fullscreen diff view (only if not already expanded)
+      private def redisplay_diff
+        return unless @last_diff_lines
+        return if @layout.fullscreen_mode?  # Already in fullscreen, ignore
+
+        # Enter fullscreen diff mode
+        @layout.enter_fullscreen(@last_diff_lines, hint: "Press Ctrl+O to return")
       end
 
       private
@@ -772,6 +786,14 @@ module Clacky
       # Handle keyboard input - delegate to InputArea or InlineInput
       # @param key [Symbol, String, Hash] Key input or rapid input hash
       def handle_key(key)
+        # If in fullscreen mode, only handle Ctrl+O to exit
+        if @layout.fullscreen_mode?
+          if key == :ctrl_o
+            @layout.exit_fullscreen
+          end
+          return
+        end
+
         # If InlineInput is active, delegate to it
         if @inline_input&.active?
           handle_inline_input_key(key)
@@ -813,6 +835,9 @@ module Clacky
           @input_callback&.call("/help", [], display: result[:data][:display])
         when :toggle_mode
           toggle_mode
+        when :toggle_expand
+          # Enter fullscreen diff view
+          redisplay_diff
         when :time_machine
           # Trigger time machine callback
           @time_machine_callback&.call
@@ -838,6 +863,9 @@ module Clacky
         when :submit, :cancel
           # InlineInput is done, will be cleaned up by request_confirmation after collect returns
           nil
+        when :toggle_expand
+          # Enter fullscreen diff view (will return when user presses Ctrl+O)
+          redisplay_diff
         when :toggle_mode
           # Update mode and session bar info, but don't render yet
           current_mode = @config[:mode]

@@ -93,6 +93,8 @@ module Clacky
             { action: :update }
           when :shift_tab
             handle_shift_tab
+          when :ctrl_o
+            handle_toggle_expand
           when :ctrl_c
             handle_cancel
           when :escape
@@ -213,6 +215,11 @@ module Clacky
           queue&.push(result)
 
           { action: :toggle_mode }
+        end
+
+        private def handle_toggle_expand
+          # Toggle expansion of diff display
+          { action: :toggle_expand }
         end
       end
     end

@@ -233,6 +233,7 @@ module Clacky
           when :ctrl_c then handle_ctrl_c
           when :ctrl_d then handle_ctrl_d
           when :ctrl_v then handle_paste
+          when :ctrl_o then { action: :toggle_expand }
           when :shift_tab then { action: :toggle_mode }
           when :escape 
             if @command_suggestions.visible

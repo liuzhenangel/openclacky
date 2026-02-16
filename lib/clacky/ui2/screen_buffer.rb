@@ -224,6 +224,7 @@ module Clacky
         when "\u0006" then :ctrl_f
         when "\u000B" then :ctrl_k
         when "\u000C" then :ctrl_l
+        when "\u000F" then :ctrl_o
         when "\u0012" then :ctrl_r
         when "\u0015" then :ctrl_u
         when "\u0016" then :ctrl_v

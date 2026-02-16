@@ -15,6 +15,7 @@ module Clacky
         @render_mutex = Mutex.new
         @output_row = 0  # Track current output row position
         @last_fixed_area_height = 0  # Track previous fixed area height to detect shrinkage
+        @fullscreen_mode = false  # Track if in fullscreen mode
 
         calculate_layout
         setup_resize_handler
@@ -155,7 +156,7 @@ module Clacky
             screen.move_cursor(row, 0)
             screen.clear_line
           end
-          
+
           # Move cursor to start of a new line after last output
           # Use \r to ensure we're at column 0, then move down
           screen.move_cursor([@output_row, 0].max, 0)
@@ -174,10 +175,10 @@ module Clacky
             screen.move_cursor(row, 0)
             screen.clear_line
           end
-          
+
           # Reset output position to beginning
           @output_row = 0
-          
+
           # Re-render fixed areas to ensure they stay in place
           render_fixed_areas
           screen.flush
@@ -315,33 +316,31 @@ module Clacky
         screen.flush
       end
 
-      private
-
       # Write a single line to output area
       # Handles scrolling when reaching fixed area
       # @param line [String] Single line to write (should not contain newlines)
       def write_output_line(line)
         # Calculate where fixed area starts (this is where output area ends)
         max_output_row = fixed_area_start_row
-        
+
         # If we're about to write into the fixed area, scroll first
         if @output_row >= max_output_row
           # Trigger terminal scroll by printing newline at bottom
           screen.move_cursor(screen.height - 1, 0)
           print "\n"
-          
+
           # After scroll, position to write at the last row of output area
           @output_row = max_output_row - 1
-          
+
           # Important: Re-render fixed areas after scroll to prevent corruption
           render_fixed_areas
         end
-        
+
         # Now write the line at current position
         screen.move_cursor(@output_row, 0)
         screen.clear_line
         print line
-        
+
         # Move to next row for next write
         @output_row += 1
       end
@@ -352,26 +351,26 @@ module Clacky
       # @return [Array<String>] Array of wrapped lines
       def wrap_long_line(line)
         return [""] if line.nil? || line.empty?
-        
+
         max_width = screen.width
         return [line] if max_width <= 0
-        
+
         # Strip ANSI codes for width calculation
         visible_line = line.gsub(/\e\[[0-9;]*m/, '')
-        
+
         # Check if line needs wrapping
         display_width = calculate_display_width(visible_line)
         return [line] if display_width <= max_width
-        
+
         # Line needs wrapping - split by considering display width
         wrapped = []
         current_line = ""
         current_width = 0
         ansi_codes = []  # Track ANSI codes to carry over
-        
+
         # Extract ANSI codes and text segments
         segments = line.split(/(\e\[[0-9;]*m)/)
-        
+
         segments.each do |segment|
           if segment =~ /^\e\[[0-9;]*m$/
             # ANSI code - add to current codes
@@ -381,7 +380,7 @@ module Clacky
             # Text segment - process character by character
             segment.each_char do |char|
               char_width = char_display_width(char)
-              
+
               if current_width + char_width > max_width && !current_line.empty?
                 # Complete current line
                 wrapped << current_line
@@ -389,19 +388,19 @@ module Clacky
                 current_line = ansi_codes.join
                 current_width = 0
               end
-              
+
               current_line += char
               current_width += char_width
             end
           end
         end
-        
+
         # Add remaining content
         wrapped << current_line unless current_line.empty? || current_line == ansi_codes.join
-        
+
         wrapped.empty? ? [""] : wrapped
       end
-      
+
       # Calculate display width of a single character
       # @param char [String] Single character
       # @return [Integer] Display width (1 or 2)
@@ -426,7 +425,7 @@ module Clacky
           1
         end
       end
-      
+
       # Calculate display width of a string (considering multi-byte characters)
       # @param text [String] Text to calculate
       # @return [Integer] Display width
@@ -501,6 +500,58 @@ module Clacky
         input_row = fixed_area_start_row + 1 + (@todo_area&.height || 0)
         input_area.position_cursor(input_row)
         screen.show_cursor
+      end
+
+      # Restore screen from fullscreen mode (re-render everything)
+      def restore_screen
+        @render_mutex.synchronize do
+          screen.clear_screen
+          screen.hide_cursor
+          render_all_internal
+        end
+      end
+
+      # Check if in fullscreen mode
+      # @return [Boolean]
+      def fullscreen_mode?
+        @fullscreen_mode
+      end
+
+      # Enter fullscreen mode with alternate screen buffer
+      # @param lines [Array<String>] Lines to display
+      # @param hint [String] Hint message at bottom
+      def enter_fullscreen(lines, hint: "Press Ctrl+O to return")
+        return if @fullscreen_mode
+        
+        @fullscreen_mode = true
+        
+        # Enter alternate screen buffer
+        print "\e[?1049h"
+        # Clear screen and move cursor to top
+        print "\e[2J\e[H"
+        $stdout.flush
+        
+        # Show all lines with proper line endings (CR+LF)
+        lines.each do |line|
+          # Strip trailing newline and print with CR+LF
+          print line.chomp + "\r\n"
+        end
+        
+        # Show hint at bottom
+        print "\r\n"
+        print "\e[36m#{hint}\e[0m\r\n"
+        $stdout.flush
+      end
+
+      # Exit fullscreen mode and restore previous screen
+      def exit_fullscreen
+        return unless @fullscreen_mode
+        
+        @fullscreen_mode = false
+        
+        # Exit alternate screen buffer (automatically restores previous screen)
+        print "\e[?1049l"
+        $stdout.flush
       end
 
       # Setup handler for window resize
