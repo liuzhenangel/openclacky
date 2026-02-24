@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-02-24
+
+This release brings significant user experience improvements, new interaction modes, and enhanced agent capabilities.
+
+### 🎯 Major Features
+
+**Subagent System**
+- Deploy subagent for parallel task execution
+- Subagent mode with invoke_skill tool and code-explorer skill integration
+- Environment variable support and model type system
+
+**Command Experience**
+- Tab completion for slash commands
+- Ctrl+O toggle expand in diff view
+- JSON mode for structured output
+- Streamlined command selection workflow with improved filtering
+
+**Agent Improvements**
+- Idle compression with auto-trigger (180s timer)
+- Improved interrupt handling for tool execution
+- Preview display for edit and write tools in auto-approve mode
+- Enable preview display in auto-approve mode
+
+**Configuration UI**
+- Auto-save to config modal
+- Improved model management UI
+- Better error handling and validation
+
+### Added
+- Quick start guides in English and Chinese
+- Config example and tests for AgentConfig
+
+### Improved
+- Refactored agent architecture (split agent.rb, moved file locations)
+- Simplified thread management in chat command
+- Dynamic width ratio instead of fixed MAX_CONTENT_WIDTH
+- API error messages with HTML detection and truncation
+- Help command handling
+
+### Changed
+- Removed deprecated Config class (replaced by AgentConfig)
+- Removed confirm_edits permission mode
+- Removed keep_recent_messages configuration
+- Removed default model value
+
+### Fixed
+- Use ToolCallError instead of generic Error in tool registry
+- Handle AgentInterrupted exception during idle compression
+- Handle XML tag contamination in JSON tool parameters
+- Prevent modal flickering on validation failure
+- Update agent client when switching models to prevent stale config
+- Update is_safe_operation to not use removed editing_tool? method
+
+### More
+- Optimize markdown horizontal rule rendering
+- Add debug logging throughout codebase
+
 ## [0.7.0] - 2026-02-06
 
 This is a major release with significant improvements to skill system, conversation memory management, and user experience.
