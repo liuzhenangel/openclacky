@@ -50,7 +50,7 @@ uninstall_homebrew() {
         if brew list openclacky >/dev/null 2>&1; then
             print_step "Uninstalling via Homebrew..."
             brew uninstall openclacky
-            
+
             # Optionally untap
             if brew tap | grep -q "clacky-ai/openclacky"; then
                 read -p "$(echo -e ${YELLOW}?${NC}) Remove Homebrew tap (clacky-ai/openclacky)? [y/N] " -n 1 -r
@@ -60,7 +60,7 @@ uninstall_homebrew() {
                     print_success "Tap removed"
                 fi
             fi
-            
+
             return 0
         fi
     fi
@@ -82,12 +82,12 @@ uninstall_gem() {
 # Remove configuration files
 remove_config() {
     CONFIG_DIR="$HOME/.clacky"
-    
+
     if [ -d "$CONFIG_DIR" ]; then
         print_warning "Configuration directory found: $CONFIG_DIR"
         read -p "$(echo -e ${YELLOW}?${NC}) Remove configuration files (including API keys)? [y/N] " -n 1 -r
         echo
-        
+
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             rm -rf "$CONFIG_DIR"
             print_success "Configuration removed"
@@ -106,24 +106,24 @@ main() {
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
-    
+
     if ! check_installation; then
         print_warning "OpenClacky does not appear to be installed"
         exit 0
     fi
-    
+
     UNINSTALLED=false
-    
+
     # Try Homebrew first
     if uninstall_homebrew; then
         UNINSTALLED=true
     fi
-    
+
     # Try gem
     if uninstall_gem; then
         UNINSTALLED=true
     fi
-    
+
     if [ "$UNINSTALLED" = false ]; then
         print_error "Could not automatically uninstall OpenClacky"
         print_info "You may need to uninstall manually:"
@@ -131,12 +131,12 @@ main() {
         echo "  - Via RubyGems: gem uninstall openclacky"
         exit 1
     fi
-    
+
     print_success "OpenClacky uninstalled successfully"
-    
+
     # Ask about config removal
     remove_config
-    
+
     echo ""
     print_success "Uninstallation complete!"
     print_info "Thank you for using OpenClacky 👋"
