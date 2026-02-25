@@ -12,7 +12,7 @@ OpenClacky = Lovable + Supabase
 
 OpenClacky's goal is to deliver the best balance of **AI quality, AI cost, and AI speed**.
 
-## How to Use
+## Quick start
 
 ```bash
 $ openclacky
@@ -49,58 +49,18 @@ $ openclacky
 
 ## Installation
 
-### Quick Install (Recommended)
-
-**One-line installation** (auto-detects your system):
+### Method 1: One-line Install (Recommended)
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh | bash
 ```
 
-This script will:
-- Check your Ruby version
-- Install via Homebrew (macOS) if available
-- Install via RubyGems if Ruby >= 3.1.0 is installed
-- Guide you to install Ruby if needed
+### Method 2: RubyGems
 
-### Method 1: Homebrew (macOS/Linux)
-
-**Best for macOS users** - Automatically handles Ruby dependencies:
-
-```bash
-brew tap clacky-ai/openclacky
-brew install openclacky
-```
-
-### Method 2: RubyGems (If you already have Ruby >= 3.1.0)
+**Requirements:** Ruby >= 3.1.0
 
 ```bash
 gem install openclacky
-```
-
-### Method 3: From Source (For Development)
-
-```bash
-git clone https://github.com/clacky-ai/open-clacky.git
-cd open-clacky
-bundle install
-bin/clacky
-```
-
-### System Requirements
-
-- **Ruby**: >= 3.1.0 (automatically handled by Homebrew)
-- **OS**: macOS, Linux, or Windows (WSL)
-
-### Uninstallation
-
-```bash
-# Quick uninstall
-curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/uninstall.sh | bash
-
-# Or manually
-brew uninstall openclacky  # If installed via Homebrew
-gem uninstall openclacky   # If installed via gem
 ```
 
 ## Configuration
@@ -108,23 +68,17 @@ gem uninstall openclacky   # If installed via gem
 Before using Clacky, you need to configure your settings:
 
 ```bash
-clacky config set
+$ openclacky
+
+- /config
 ```
 
 You'll be prompted to enter:
 - **API Key**: Your API key from any OpenAI-compatible provider
-- **Model**: Model name (e.g., `gpt-4`, `deepseek-chat`)
-- **Base URL**: OpenAI-compatible API endpoint (e.g., `https://api.openai.com/v1`)
-
-To view your current configuration:
-
-```bash
-clacky config show
-```
+- **Model**: Model name
+- **Base URL**: OpenAI-compatible API endpoint
 
 ## Usage
-
-### AI Agent Mode (Interactive)
 
 Run an autonomous AI agent in interactive mode. The agent can use tools to complete tasks and runs in a continuous loop, allowing you to have multi-turn conversations with tool use capabilities.
 
@@ -155,25 +109,6 @@ clacky agent --path /path/to/project
 --verbose                      # Show detailed output
 ```
 
-#### Cost Control & Memory Management
-
-The agent includes intelligent cost control features:
-
-- **Automatic Message Compression**: When conversation history grows beyond 100 messages, the agent automatically compresses older messages into a summary, keeping only the system prompt and the most recent 20 messages. This dramatically reduces token costs for long-running tasks (achieves ~60% compression ratio).
-
-- **Compression Settings**:
-  - `enable_compression`: Enable/disable automatic compression (default: true)
-  - `keep_recent_messages`: Number of recent messages to preserve (default: 20)
-  - Compression triggers at: ~100 messages (keep_recent_messages + 80)
-
-### List Available Tools
-
-View all built-in tools:
-
-```bash
-clacky tools
-```
-
 #### Built-in Tools
 
 - **todo_manager** - Manage TODO items for task planning and tracking
@@ -185,17 +120,6 @@ clacky tools
 - **shell** - Execute shell commands
 - **web_search** - Search the web for information
 - **web_fetch** - Fetch and parse web page content
-
-### Available Commands
-
-```bash
-clacky agent [MESSAGE]    # Run autonomous agent with tool use
-clacky tools              # List available tools
-clacky config set         # Set your API key
-clacky config show        # Show current configuration
-clacky version            # Show clacky version
-clacky help               # Show help information
-```
 
 ## Examples
 
@@ -223,6 +147,15 @@ clacky agent "Implement a new feature with user authentication"
 # 3. Complete each todo step by step
 # 4. Mark todos as completed as work progresses
 # > exit
+```
+
+## Install from Source
+
+```bash
+git clone https://github.com/clacky-ai/open-clacky.git
+cd open-clacky
+bundle install
+bin/clacky
 ```
 
 ## Development
