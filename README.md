@@ -80,72 +80,32 @@ You'll be prompted to enter:
 
 ## Usage
 
-Run an autonomous AI agent in interactive mode. The agent can use tools to complete tasks and runs in a continuous loop, allowing you to have multi-turn conversations with tool use capabilities.
+### Scenario 1: Create a new web app
 
 ```bash
-# Start interactive agent (will prompt for tasks)
-clacky agent
-
-# Start with an initial task, then continue interactively
-clacky agent "Create a README.md file for my project"
-
-# Auto-approve all tool executions
-clacky agent --mode=auto_approve
-
-# Work in a specific project directory
-clacky agent --path /path/to/project
-
-#### Permission Modes
-
-- `auto_approve` - Automatically execute all tools (use with caution)
-- `confirm_safes` - Auto-approve read-only tools, confirm edits
-- `plan_only` - Generate plan without executing
-
-#### Agent Options
-
-```bash
---path PATH                    # Project directory (defaults to current directory)
---mode MODE                    # Permission mode
---verbose                      # Show detailed output
+$ openclacky
+> /new my-blog
+# OpenClacky scaffolds a full-stack Rails app in seconds
+# > Add a posts page with title, content, and author fields
+# > Deploy to production
+# > exit
 ```
 
-#### Built-in Tools
-
-- **todo_manager** - Manage TODO items for task planning and tracking
-- **file_reader** - Read file contents
-- **write** - Create or overwrite files
-- **edit** - Make precise edits to existing files
-- **glob** - Find files by pattern matching
-- **grep** - Search file contents with regex
-- **shell** - Execute shell commands
-- **web_search** - Search the web for information
-- **web_fetch** - Fetch and parse web page content
-
-## Examples
-
-### Agent Examples
+### Scenario 2: Build a feature in an existing project
 
 ```bash
-# Start interactive agent session
-clacky agent
-# Then type tasks interactively:
-# > Create a TODO.md file with 3 example tasks
-# > Now add more items to the TODO list
+$ cd ~/my-project && openclacky
+# > Add user authentication with email and password
+# > Write tests for the auth flow
 # > exit
+```
 
-# Auto-approve mode for trusted operations
-clacky agent --mode=auto_approve --path ~/my-project
-# > Count all lines of code
-# > Create a summary report
-# > exit
+### Scenario 3: Ask questions about your codebase
 
-# Using TODO manager for complex tasks
-clacky agent "Implement a new feature with user authentication"
-# Agent will:
-# 1. Use todo_manager to create a task plan
-# 2. Add todos: "Research current auth patterns", "Design auth flow", etc.
-# 3. Complete each todo step by step
-# 4. Mark todos as completed as work progresses
+```bash
+$ openclacky
+# > How does the payment module work?
+# > Where is the user session managed?
 # > exit
 ```
 
@@ -160,22 +120,7 @@ bin/clacky
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
-
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
-
-### Testing Agent Features
-
-After making changes to agent-related functionality (tools, system prompts, agent logic, etc.), test with this command:
-
-```bash
-# Test agent with a complex multi-step task using auto-approve mode
-echo "Create a simple calculator project with index.html, style.css, and script.js files" | \
-  bin/clacky agent --mode=auto_approve --path=tmp --max-iterations=20
-
-# Expected: Agent should plan tasks (add TODOs), execute them (create files),
-# and track progress (mark TODOs as completed)
-```
+After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/clacky` for an interactive prompt that will allow you to experiment.
 
 ## Contributing
 
