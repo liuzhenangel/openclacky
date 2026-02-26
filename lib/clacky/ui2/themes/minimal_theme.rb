@@ -26,24 +26,25 @@ module Clacky
         }.freeze
 
         COLORS = {
-          user: [:bright_black, :bright_black],      # User prompt and input - subtle, works on both backgrounds
-          assistant: [:green, :bright_black],        # AI response
-          tool_call: [:cyan, :cyan],                 # Tool execution
-          tool_result: [:cyan, :bright_black],       # Tool output
-          tool_denied: [:yellow, :yellow],           # Denied actions
-          tool_planned: [:cyan, :cyan],              # Planned actions
-          tool_error: [:red, :red],                  # Errors
-          thinking: [:bright_black, :bright_black],  # Thinking status
-          working: [:bright_yellow, :yellow],        # Working status
-          success: [:green, :green],                 # Success messages
-          error: [:red, :red],                       # Error messages
-          warning: [:yellow, :yellow],               # Warnings
-          info: [:bright_black, :bright_black],      # Info messages - subtle
-          task: [:yellow, :bright_black],            # Task items
-          progress: [:cyan, :cyan],                  # Progress indicators
+          # Format: [symbol_color, dark_bg_text, light_bg_text]
+          user: [:bright_black, :bright_black, :black],           # User prompt and input
+          assistant: [:green, :bright_black, :bright_black],      # AI response
+          tool_call: [:cyan, :cyan, :cyan],                       # Tool execution
+          tool_result: [:cyan, :bright_black, :bright_black],     # Tool output
+          tool_denied: [:yellow, :yellow, :yellow],               # Denied actions
+          tool_planned: [:cyan, :cyan, :cyan],                    # Planned actions
+          tool_error: [:red, :red, :red],                         # Errors
+          thinking: [:bright_black, :bright_black, :bright_black], # Thinking status
+          working: [:bright_yellow, :yellow, :yellow],            # Working status
+          success: [:green, :green, :green],                      # Success messages
+          error: [:red, :red, :red],                              # Error messages
+          warning: [:yellow, :yellow, :yellow],                   # Warnings
+          info: [:bright_black, :bright_black, :bright_black],    # Info messages
+          task: [:yellow, :bright_black, :bright_black],          # Task items
+          progress: [:cyan, :cyan, :cyan],                        # Progress indicators
           # Status bar colors
-          statusbar_path: [:bright_black, :bright_black],        # Path - subtle
-          statusbar_secondary: [:bright_black, :bright_black]   # Model/tasks/cost - subtle
+          statusbar_path: [:bright_black, :bright_black, :bright_black],        # Path
+          statusbar_secondary: [:bright_black, :bright_black, :bright_black]    # Model/tasks/cost
         }.freeze
 
         def name

@@ -34,8 +34,24 @@ module Clacky
       def initialize
         @themes = {}
         @current_theme = nil
+        @is_dark_background = nil  # Store detected background mode
         register_default_themes
         set_theme(:hacker)
+      end
+
+      # Set the detected terminal background mode
+      # This should be called BEFORE UI starts (from CLI)
+      # @param is_dark [Boolean] true if dark background, false if light
+      def set_background_mode(is_dark)
+        @is_dark_background = is_dark
+        # Pass to current theme if already initialized
+        @current_theme&.set_background_mode(is_dark)
+      end
+
+      # Get the detected background mode
+      # @return [Boolean, nil] true if dark, false if light, nil if not detected
+      def dark_background?
+        @is_dark_background
       end
 
       def current_theme
@@ -47,6 +63,8 @@ module Clacky
         raise ArgumentError, "Unknown theme: #{name}" unless @themes.key?(name)
 
         @current_theme = @themes[name].new
+        # Pass background mode to new theme if already detected
+        @current_theme.set_background_mode(@is_dark_background) unless @is_dark_background.nil?
       end
 
       def available_themes

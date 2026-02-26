@@ -424,6 +424,12 @@ module Clacky
 
       # Run agent with UI2 split-screen interface
       def run_agent_with_ui2(agent, working_dir, agent_config, session_manager = nil, client = nil, is_session_load: false)
+        # Detect terminal background BEFORE starting UI2 to avoid output interference
+        is_dark_bg = UI2::TerminalDetector.detect_dark_background
+        
+        # Pass detected background mode to theme manager (singleton)
+        UI2::ThemeManager.instance.set_background_mode(is_dark_bg)
+        
         # Validate theme
         theme_name = options[:theme] || "hacker"
         available_themes = UI2::ThemeManager.available_themes.map(&:to_s)

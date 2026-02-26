@@ -5,6 +5,7 @@
 
 require_relative "ui2/thinking_verbs"
 require_relative "ui2/progress_indicator"
+require_relative "ui2/terminal_detector"
 require_relative "ui2/theme_manager"
 require_relative "ui2/screen_buffer"
 require_relative "ui2/layout_manager"

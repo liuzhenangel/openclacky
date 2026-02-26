@@ -10,7 +10,14 @@ module Clacky
       class BaseTheme
         def initialize
           @pastel = Pastel.new
+          @is_dark_background = nil  # Will be set by ThemeManager
           validate_theme_definition!
+        end
+
+        # Set background mode (called by ThemeManager after detection)
+        # @param is_dark [Boolean] true if dark background, false if light
+        def set_background_mode(is_dark)
+          @is_dark_background = is_dark
         end
 
         # Get all symbols defined by this theme
@@ -40,10 +47,16 @@ module Clacky
         end
 
         # Get text color for a specific key
+        # Automatically selects appropriate color based on terminal background
+        # Color format: [symbol_color, dark_bg_text_color, light_bg_text_color]
         # @param key [Symbol] Color key
         # @return [Symbol] Pastel color method name
         def text_color(key)
-          colors.dig(key, 1) || :white
+          color_def = colors[key]
+          return :white unless color_def
+          
+          # Use index 1 for dark background, index 2 for light background
+          dark_background? ? color_def[1] : color_def[2]
         end
 
         # Format symbol with its color
@@ -65,6 +78,14 @@ module Clacky
         # @return [String] Theme name
         def name
           raise NotImplementedError, "Subclass must implement #name method"
+        end
+
+        # Check if terminal has dark background
+        # Uses pre-detected value from ThemeManager, or defaults to true
+        # @return [Boolean] true if dark background, false if light background
+        def dark_background?
+          # Use pre-detected value if available, otherwise default to dark
+          @is_dark_background.nil? ? true : @is_dark_background
         end
 
         private

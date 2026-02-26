@@ -1058,15 +1058,33 @@ module Clacky
         end
 
         # Render a segment of a line with cursor if cursor is in this segment
+        # Applies theme colors to the text
         # @param line [String] Full line text
         # @param segment_start [Integer] Start position of segment in line (char index)
         # @param segment_end [Integer] End position of segment in line (char index)
-        # @return [String] Rendered segment with cursor if applicable
+        # @return [String] Rendered segment with cursor and theme colors applied
         def render_line_segment_with_cursor(line, segment_start, segment_end)
-          # Delegate to LineEditor's shared implementation
-          rendered = super(line, segment_start, segment_end)
-          # Apply theme colors for InputArea
-          theme.format_text(rendered, :user)
+          chars = line.chars
+          segment_chars = chars[segment_start...segment_end]
+
+          # Check if cursor is in this segment
+          if @cursor_position >= segment_start && @cursor_position < segment_end
+            # Cursor is in this segment
+            cursor_pos_in_segment = @cursor_position - segment_start
+            before_cursor = segment_chars[0...cursor_pos_in_segment].join
+            cursor_char = segment_chars[cursor_pos_in_segment] || " "
+            after_cursor = segment_chars[(cursor_pos_in_segment + 1)..-1]&.join || ""
+
+            # Apply theme color to text parts, keep cursor highlight as is
+            "#{theme.format_text(before_cursor, :user)}#{@pastel.on_white(@pastel.black(cursor_char))}#{theme.format_text(after_cursor, :user)}"
+          elsif @cursor_position == segment_end && segment_end == line.length
+            # Cursor is at the very end of the line, show it in last segment
+            segment_text = segment_chars.join
+            "#{theme.format_text(segment_text, :user)}#{@pastel.on_white(@pastel.black(' '))}"
+          else
+            # Cursor is not in this segment, apply theme color
+            theme.format_text(segment_chars.join, :user)
+          end
         end
 
         # Render a separator line (ensures it doesn't exceed screen width)

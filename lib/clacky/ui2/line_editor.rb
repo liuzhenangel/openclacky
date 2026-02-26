@@ -334,7 +334,7 @@ module Clacky
       # @param line [String] Full line text
       # @param segment_start [Integer] Start position of segment in line (char index)
       # @param segment_end [Integer] End position of segment in line (char index)
-      # @return [String] Rendered segment with cursor if applicable
+      # @return [String] Rendered segment with cursor if applicable (without text color, only cursor highlight)
       def render_line_segment_with_cursor(line, segment_start, segment_end)
         chars = line.chars
         segment_chars = chars[segment_start...segment_end]
@@ -347,14 +347,15 @@ module Clacky
           cursor_char = segment_chars[cursor_pos_in_segment] || " "
           after_cursor = segment_chars[(cursor_pos_in_segment + 1)..-1]&.join || ""
 
-          "#{@pastel.white(before_cursor)}#{@pastel.on_white(@pastel.black(cursor_char))}#{@pastel.white(after_cursor)}"
+          # Only apply cursor highlight, let subclasses apply text color
+          "#{before_cursor}#{@pastel.on_white(@pastel.black(cursor_char))}#{after_cursor}"
         elsif @cursor_position == segment_end && segment_end == line.length
           # Cursor is at the very end of the line, show it in last segment
           segment_text = segment_chars.join
-          "#{@pastel.white(segment_text)}#{@pastel.on_white(@pastel.black(' '))}"
+          "#{segment_text}#{@pastel.on_white(@pastel.black(' '))}"
         else
-          # Cursor is not in this segment, just format normally
-          @pastel.white(segment_chars.join)
+          # Cursor is not in this segment, return plain text without color
+          segment_chars.join
         end
       end
     end
