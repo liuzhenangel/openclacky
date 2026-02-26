@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-02-26
+
+### Fixed
+- Modal component validation result handling after form submission
+- Modal height calculation for dynamic field count in form mode
+
+### Improved
+- Provider ordering prioritizes well-tested providers (OpenRouter, Minimax) first
+- Updated Minimax to use new base URL (api.minimaxi.com) and M2.5 as default
+- Updated model versions: Claude Sonnet 4.6, OpenRouter Sonnet 4-6, Haiku 4.5
+- Minimax model list now includes M2.1 and M2.5 (removed deprecated Text-01)
+
 ## [0.7.2] - 2026-02-26
 
 ### Added
