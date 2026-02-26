@@ -42,7 +42,7 @@ detect_os() {
         *)          OS=Unknown;;
     esac
     print_info "Detected OS: $OS"
-    
+
     # Detect Linux distribution
     if [ "$OS" = "Linux" ]; then
         if [ -f /etc/os-release ]; then
@@ -116,11 +116,11 @@ install_macos_dependencies() {
     if ! command_exists brew; then
         print_info "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        
+
         # Add Homebrew to PATH
         echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc
         export PATH="/opt/homebrew/bin:$PATH"
-        
+
         print_success "Homebrew installed successfully"
     else
         print_success "Homebrew already installed"
@@ -146,10 +146,10 @@ install_macos_dependencies() {
             if [ -f ~/.bash_profile ]; then
                 echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bash_profile
             fi
-            
+
             export PATH="$HOME/.local/bin:$PATH"
             eval "$(~/.local/bin/mise activate bash)"
-            
+
             print_success "mise installed successfully"
         else
             print_error "Failed to install mise"
@@ -169,7 +169,7 @@ install_macos_dependencies() {
         print_error "Failed to install Ruby 3"
         return 1
     fi
-    
+
     # Verify Ruby installation
     if check_ruby; then
         return 0
@@ -210,10 +210,10 @@ install_ubuntu_dependencies() {
             if [ -f ~/.bashrc ]; then
                 echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
             fi
-            
+
             export PATH="$HOME/.local/bin:$PATH"
             eval "$(~/.local/bin/mise activate bash)"
-            
+
             print_success "mise installed successfully"
         else
             print_error "Failed to install mise"
@@ -233,7 +233,7 @@ install_ubuntu_dependencies() {
         print_error "Failed to install Ruby 3"
         return 1
     fi
-    
+
     # Verify Ruby installation
     if check_ruby; then
         return 0
@@ -253,7 +253,7 @@ suggest_ruby_installation() {
         echo "  This script can automatically install Ruby and dependencies for you."
         echo "  Uses mise - a fast, polyglot tool version manager."
         echo ""
-        read -p "Would you like to install Ruby and dependencies automatically? (y/n) " -n 1 -r < /dev/tty
+        read -p "Would you like to install Ruby and dependencies automatically? (y/n) " -n 1 -r
         echo ""
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             install_macos_dependencies
@@ -280,7 +280,7 @@ suggest_ruby_installation() {
             echo "  This script can automatically install Ruby and dependencies for you."
             echo "  Uses mise - a fast, polyglot tool version manager."
             echo ""
-            read -p "Would you like to install Ruby and dependencies automatically? (y/n) " -n 1 -r < /dev/tty
+            read -p "Would you like to install Ruby and dependencies automatically? (y/n) " -n 1 -r
             echo ""
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 install_ubuntu_dependencies
@@ -311,7 +311,7 @@ suggest_ruby_installation() {
             echo "  # Install Ruby 3"
             echo "  mise use -g ruby@3"
         fi
-    
+
     elif [ "$OS" = "Windows" ]; then
         print_info "Windows Subsystem for Linux (WSL) Installation (Recommended)"
         echo "  OpenClacky requires a Unix-like environment. We recommend using WSL."

@@ -52,7 +52,7 @@ $ openclacky
 ### Method 1: One-line Install (Recommended)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh | bash
+/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh)"
 ```
 
 ### Method 2: RubyGems
