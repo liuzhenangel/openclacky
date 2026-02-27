@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-02-27
+
+### Added
+- Real-time command output viewing with Ctrl+O hotkey
+- GitHub skill installation support in skill-add
+- Rails project creation scripts in new skill
+- Auto-create ~/clacky_workspace when starting from home directory
+
+### Improved
+- System prompt with glob tool usage guidance
+- Commit skill with holistic grouping strategy and purpose-driven commits
+- Theme color support for light backgrounds (bright mode refinements)
+- Shell output handling and preview functionality
+- Message compressor optimization (reduced to 200)
+
+### Fixed
+- UI2 output re-rendering on modal close and height changes
+- Double render issue in inline input cleanup
+- Small terminal width handling for logo display
+- Extra newline in question display
+
+### More
+- Commented out idle timer debug logs for cleaner output
+
 ## [0.7.3] - 2026-02-26
 
 ### Fixed
