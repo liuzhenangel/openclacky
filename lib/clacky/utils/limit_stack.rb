@@ -31,6 +31,11 @@ module Clacky
         self
       end
 
+      # Remove and return the last element
+      def pop
+        @items.pop
+      end
+
       # Get last N elements
       def last(n = nil)
         n ? @items.last(n) : @items.last

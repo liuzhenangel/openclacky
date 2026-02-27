@@ -268,6 +268,11 @@ module Clacky
             screen.clear_line
           end
 
+          # Remove old lines from buffer
+          old_line_count.times do
+            @output_buffer.pop if @output_buffer.size > 0
+          end
+
           # Re-render the content
           lines = content.split("\n", -1)
           current_row = start_row
@@ -275,6 +280,8 @@ module Clacky
           lines.each_with_index do |line, idx|
             screen.move_cursor(current_row, 0)
             print line
+            # Add updated line to buffer
+            @output_buffer << line
             current_row += 1
           end
 
@@ -312,6 +319,11 @@ module Clacky
           (start_row...@output_row).each do |row|
             screen.move_cursor(row, 0)
             screen.clear_line
+          end
+
+          # Also remove from output buffer to prevent re-rendering
+          line_count.times do
+            @output_buffer.pop if @output_buffer.size > 0
           end
 
           # Update output_row

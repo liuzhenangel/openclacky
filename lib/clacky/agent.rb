@@ -458,16 +458,37 @@ module Clacky
             args[:skip_safety_check] = true
           end
 
-          # Show progress for potentially slow tools (no prefix newline)
-          if potentially_slow_tool?(call[:name], args)
+          # Automatic progress display after 2 seconds for any tool execution
+          progress_shown = false
+          progress_timer = nil
+          output_buffer = nil
+          
+          if @ui
             progress_message = build_tool_progress_message(call[:name], args)
-            @ui&.show_progress(progress_message, prefix_newline: false)
+            
+            # For shell commands, create shared output buffer
+            if call[:name] == "shell" || call[:name] == "safe_shell"
+              output_buffer = { content: "", timestamp: Time.now }
+              args[:output_buffer] = output_buffer
+            end
+            
+            progress_timer = Thread.new do
+              sleep 2
+              @ui.show_progress(progress_message, prefix_newline: false, output_buffer: output_buffer)
+              progress_shown = true
+            end
           end
 
-          result = tool.execute(**args)
-
-          # Clear progress if shown
-          @ui&.clear_progress if potentially_slow_tool?(call[:name], args)
+          begin
+            result = tool.execute(**args)
+          ensure
+            # Cancel timer and clear progress if shown
+            if progress_timer
+              progress_timer.kill
+              progress_timer.join
+            end
+            @ui&.clear_progress if progress_shown
+          end
 
           # Track modified files for Time Machine snapshots
           track_modified_files(call[:name], args)

@@ -57,7 +57,7 @@ module Clacky
         'go build'
       ].freeze
 
-      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000)
+      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000, output_buffer: nil)
         require "open3"
         require "stringio"
 
@@ -67,6 +67,15 @@ module Clacky
         stderr_buffer = StringIO.new
         soft_timeout_triggered = false
         process_pid = nil
+        
+        # Store output buffer reference for real-time access (use LimitStack for memory efficiency)
+        @output_buffer = output_buffer
+        if @output_buffer
+          @output_buffer[:stdout_lines] = Utils::LimitStack.new(max_size: 1000)
+          @output_buffer[:stderr_lines] = Utils::LimitStack.new(max_size: 200)
+        end
+        @stdout_buffer = stdout_buffer
+        @stderr_buffer = stderr_buffer
 
         begin
           Open3.popen3(command) do |stdin, stdout, stderr, wait_thr|
@@ -126,6 +135,8 @@ module Clacky
                         else
                           stderr_buffer.write(data)
                         end
+                        # Update shared output buffer for real-time access
+                        update_output_buffer
                       rescue IO::WaitReadable, EOFError
                       end
                     end
@@ -404,6 +415,24 @@ module Clacky
         content = first_part.join + notice
 
         { content: content, temp_file: temp_file }
+      end
+
+      # Update shared output buffer for real-time access
+      # Uses LimitStack to automatically manage memory and keep only recent output
+      private def update_output_buffer
+        return unless @output_buffer
+
+        # Push new lines to LimitStack (automatically handles size limit)
+        stdout_lines = @stdout_buffer.string.lines
+        stderr_lines = @stderr_buffer.string.lines
+        
+        @output_buffer[:stdout_lines].clear
+        @output_buffer[:stdout_lines].push_lines(stdout_lines)
+        
+        @output_buffer[:stderr_lines].clear
+        @output_buffer[:stderr_lines].push_lines(stderr_lines)
+        
+        @output_buffer[:timestamp] = Time.now
       end
     end
   end

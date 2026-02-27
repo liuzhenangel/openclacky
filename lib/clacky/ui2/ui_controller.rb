@@ -446,7 +446,8 @@ module Clacky
       # Show progress indicator with dynamic elapsed time
       # @param message [String] Progress message (optional, will use random thinking verb if nil)
       # @param prefix_newline [Boolean] Whether to add a blank line before progress (default: true)
-      def show_progress(message = nil, prefix_newline: true)
+      # @param output_buffer [Hash, nil] Shared output buffer for real-time command output (optional)
+      def show_progress(message = nil, prefix_newline: true, output_buffer: nil)
         # Stop any existing progress thread
         stop_progress_thread
 
@@ -455,10 +456,12 @@ module Clacky
 
         @progress_message = message || Clacky::THINKING_VERBS.sample
         @progress_start_time = Time.now
+        @progress_output_buffer = output_buffer
 
         # Show initial progress (yellow, active)
         append_output("") if prefix_newline
-        output = @renderer.render_working("#{@progress_message}… (ctrl+c to interrupt)")
+        hint = output_buffer ? "(Ctrl+C to interrupt · Ctrl+O to view output)" : "(Ctrl+C to interrupt)"
+        output = @renderer.render_working("#{@progress_message}… #{hint}")
         append_output(output)
 
         # Start background thread to update elapsed time
@@ -468,7 +471,8 @@ module Clacky
             next unless @progress_start_time
 
             elapsed = (Time.now - @progress_start_time).to_i
-            update_progress_line(@renderer.render_working("#{@progress_message}… (ctrl+c to interrupt · #{elapsed}s)"))
+            hint = output_buffer ? "(Ctrl+C to interrupt · Ctrl+O to view output · #{elapsed}s)" : "(Ctrl+C to interrupt · #{elapsed}s)"
+            update_progress_line(@renderer.render_working("#{@progress_message}… #{hint}"))
           end
         rescue => e
           # Silently handle thread errors
@@ -495,6 +499,7 @@ module Clacky
       # Stop the progress update thread
       def stop_progress_thread
         @progress_start_time = nil
+        @progress_output_buffer = nil  # Clear output buffer reference
         if @progress_thread&.alive?
           @progress_thread.kill
           @progress_thread = nil
@@ -671,6 +676,32 @@ module Clacky
         @layout.enter_fullscreen(@last_diff_lines, hint: "Press Ctrl+O to return")
       end
 
+      # Show fullscreen command output view
+      def show_command_output
+        return unless @progress_output_buffer
+        return if @layout.fullscreen_mode?  # Already in fullscreen, ignore
+
+        # Get lines from LimitStack
+        stdout_lines = @progress_output_buffer[:stdout_lines]&.to_a || []
+        stderr_lines = @progress_output_buffer[:stderr_lines]&.to_a || []
+        
+        lines = stdout_lines.map(&:chomp)
+        
+        # Add stderr section if present
+        unless stderr_lines.empty?
+          lines << ""
+          lines << "--- STDERR ---"
+          lines += stderr_lines.map(&:chomp)
+        end
+        
+        if lines.empty?
+          lines = ["(No output yet)"]
+        end
+
+        # Enter fullscreen mode to display command output
+        @layout.enter_fullscreen(lines, hint: "Press Ctrl+O to return · Output updates in real-time")
+      end
+
       private
 
       # Format tool call for display
@@ -840,8 +871,12 @@ module Clacky
         when :toggle_mode
           toggle_mode
         when :toggle_expand
-          # Enter fullscreen diff view
-          redisplay_diff
+          # If there's command output available, show it; otherwise show diff
+          if @progress_output_buffer
+            show_command_output
+          else
+            redisplay_diff
+          end
         when :time_machine
           # Trigger time machine callback
           @time_machine_callback&.call
@@ -868,8 +903,12 @@ module Clacky
           # InlineInput is done, will be cleaned up by request_confirmation after collect returns
           nil
         when :toggle_expand
-          # Enter fullscreen diff view (will return when user presses Ctrl+O)
-          redisplay_diff
+          # If there's command output available, show it; otherwise show diff
+          if @progress_output_buffer
+            show_command_output
+          else
+            redisplay_diff
+          end
         when :toggle_mode
           # Update mode and session bar info, but don't render yet
           current_mode = @config[:mode]
