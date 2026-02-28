@@ -199,7 +199,7 @@ module Clacky
       def wrap_with_shell(command)
         shell = ENV['SHELL'].to_s
         shell = '/bin/bash' if shell.empty?
-        "#{shell} -i -c #{Shellwords.escape(command)}"
+        "#{shell} -l -c #{Shellwords.escape(command)}"
       end
 
       def determine_timeouts(command, soft_timeout, hard_timeout)
