@@ -78,7 +78,7 @@ module Clacky
         @stderr_buffer = stderr_buffer
 
         begin
-          Open3.popen3(command) do |stdin, stdout, stderr, wait_thr|
+          Open3.popen3(wrap_with_shell(command)) do |stdin, stdout, stderr, wait_thr|
             process_pid = wait_thr.pid
             start_time = Time.now
 
@@ -191,6 +191,15 @@ module Clacky
             output_truncated: output_truncated?(stdout_output, stderr_output, max_output_lines)
           }
         end
+      end
+
+      # Wrap command in an interactive shell so it loads user's rc files
+      # (e.g. ~/.bashrc, ~/.zshrc) and picks up PATH changes from tools
+      # like nvm, rbenv, brew, etc. Falls back to bash if $SHELL is unset.
+      def wrap_with_shell(command)
+        shell = ENV['SHELL'].to_s
+        shell = '/bin/bash' if shell.empty?
+        "#{shell} -i -c #{Shellwords.escape(command)}"
       end
 
       def determine_timeouts(command, soft_timeout, hard_timeout)
