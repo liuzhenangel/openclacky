@@ -59,14 +59,16 @@ module Clacky
         end
 
         # Render tool error
+        # Use a low-key style (same as tool_result) since most tool errors
+        # (e.g. tool not found, invalid args) are non-critical and the agent can retry.
         # @param data [Hash] Tool error data
         # @return [String] Rendered tool error
         def render_tool_error(data)
-          symbol = format_symbol(:tool_error)
+          symbol = format_symbol(:tool_result)
           error_msg = data[:error] || "Unknown error"
-          text = format_text("Error: #{error_msg}", :tool_error)
+          text = format_text(truncate(error_msg, 200), :tool_result)
 
-          "\n#{symbol} #{text}"
+          "#{symbol} #{text}"
         end
 
         # Render tool denied

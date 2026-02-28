@@ -53,10 +53,11 @@ RSpec.describe Clacky::UI2::ViewRenderer do
   end
 
   describe "#render_tool_error" do
-    it "renders tool error" do
+    it "renders tool error in low-key style (same symbol as tool_result)" do
       result = renderer.render_tool_error(error: "File not found")
-      expect(result).to include("[XX]")
-      expect(result).to include("Error")
+      # Uses tool_result symbol [<=] instead of [XX] to avoid alarming users
+      # for non-critical errors that the agent can retry
+      expect(result).to include("[<=]")
       expect(result).to include("File not found")
     end
   end
