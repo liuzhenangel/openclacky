@@ -273,8 +273,9 @@ module Clacky
           is_current_dir = session[:working_dir] == working_dir
 
           dir_marker = is_current_dir ? "📍" : "  "
-          say "#{dir_marker} #{index + 1}. [#{session_id}] #{created_at} (#{tasks} tasks, $#{cost.round(4)}) - #{first_msg}", :cyan
+          say "#{dir_marker} #{index + 1}. [#{session_id}] #{created_at} (#{tasks} tasks, $#{cost.round(4)}) - #{last_msg}", :cyan
         end
+        say "\n\n💡 Use `clacky -a <session_id>` to resume a session.", :yellow
         say ""
       end
 
