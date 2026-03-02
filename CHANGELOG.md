@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-03-02
+
+### Added
+- Non-interactive `--message`/`-m` CLI mode for scripting and automation (run a single prompt and exit)
+- Real-time refresh and thread-safety improvements to fullscreen UI mode
+
+### Improved
+- Extract string matching logic into `Utils::StringMatcher` for cleaner, reusable edit diffing
+- Glob tool now uses force mode in system prompt for more reliable file discovery
+- VCS directories (`.git`, `.svn`, etc.) defined as `ALWAYS_IGNORED_DIRS` constant
+
+### Fixed
+- Subagent fork now injects assistant acknowledgment to fix conversation structure issues
+- Tool-denial message clarified; added `action_performed` flag for better control flow
+
+### More
+- Add memory architecture documentation
+- Minor whitespace cleanup in `agent_config.rb`
+
 ## [0.7.5] - 2026-02-28
 
 ### Fixed
