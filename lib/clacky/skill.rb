@@ -250,8 +250,11 @@ module Clacky
     end
 
     def substitute_arguments(content, arguments)
-      # Parse arguments as shell words for indexed access
-      args_array = arguments.shellsplit
+      # Split arguments by whitespace for indexed access ($0, $1, $ARGUMENTS[N]).
+      # Skill arguments are natural language, not shell commands — shellsplit is
+      # intentionally avoided here to prevent errors on apostrophes and other
+      # characters that have special meaning in shell but not in plain text.
+      args_array = arguments.split
 
       # Replace $ARGUMENTS with all arguments
       result = content.gsub("$ARGUMENTS", arguments.to_s)
