@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-03-04
+
+### Added
+- Web UI server with WebSocket support for real-time agent interaction in the browser (`clacky serve`)
+- Task scheduler with cron-based automation, REST API, and scheduled task execution
+- Settings panel in web UI for viewing and editing AI model configurations (API keys, base URL, provider presets)
+- Image upload support in web UI with attach button for multimodal prompts
+- Create Task button in the task list panel for quick task creation from the web UI
+- `create-task` default skill for guided automated task creation
+
+### Improved
+- Web UI frontend split into modular files (`ws.js`, `sessions.js`, `tasks.js`, `settings.js`) for maintainability
+- Web session agents now run in `auto_approve` mode for unattended execution
+- Session management moved to client-side for faster, round-trip-free navigation
+- User message rendering moved to the UI layer for cleaner architecture
+- No-cache headers for static file serving to ensure fresh asset delivery
+
+### Fixed
+- `DELETE`/`PUT`/`PATCH` HTTP methods now supported via custom WEBrick servlet
+- Task run broadcasts correctly after WebSocket subscription; table button visibility fixed
+- Mutex deadlock in scheduler `stop` method when called from a signal trap context
+- `split` used instead of `shellsplit` for skill arguments to avoid parsing errors
+
+### More
+- Add HTTP server spec and scheduler spec with full test coverage
+- Minor web UI style improvements and reduced mouse dependency
+
 ## [0.7.6] - 2026-03-02
 
 ### Added
