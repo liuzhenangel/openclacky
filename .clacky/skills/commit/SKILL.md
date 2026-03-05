@@ -1,7 +1,7 @@
 ---
+---
 name: commit
 description: Smart Git commit helper that analyzes changes and creates semantic commits
-disable-model-invocation: false
 user-invocable: true
 ---
 
