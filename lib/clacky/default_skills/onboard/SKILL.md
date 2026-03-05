@@ -1,3 +1,10 @@
+---
+name: onboard
+description: Onboard a new user by collecting AI personality preferences and user profile, then writing SOUL.md and USER.md.
+disable-model-invocation: true
+user-invocable: true
+---
+
 # Skill: onboard
 
 ## Purpose
