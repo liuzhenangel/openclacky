@@ -28,6 +28,9 @@ module Clacky
         end
 
         begin
+          # Expand ~ to home directory
+          path = expand_path(path)
+
           # Ensure parent directory exists
           dir = File.dirname(path)
           FileUtils.mkdir_p(dir) unless Dir.exist?(dir)

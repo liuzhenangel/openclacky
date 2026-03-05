@@ -82,7 +82,7 @@ module Clacky
 
         # Validate and expand path
         begin
-          expanded_path = File.expand_path(path)
+          expanded_path = expand_path(path)
         rescue StandardError => e
           return { error: "Invalid path: #{e.message}" }
         end

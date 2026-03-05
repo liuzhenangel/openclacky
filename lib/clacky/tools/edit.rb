@@ -32,6 +32,9 @@ module Clacky
       }
 
       def execute(path:, old_string:, new_string:, replace_all: false)
+        # Expand ~ to home directory
+        path = expand_path(path)
+
         unless File.exist?(path)
           return { error: "File not found: #{path}" }
         end

@@ -28,6 +28,17 @@ module Clacky
         raise NotImplementedError, "#{self.class.name} must implement #execute"
       end
 
+      # Expand ~ to home directory only if path starts with ~
+      # Relative paths are kept as-is to avoid expanding to long absolute paths
+      # @param path [String, nil] The path to expand
+      # @return [String, nil] The expanded path, or original if no ~ present
+      private def expand_path(path)
+        return path if path.nil? || path.strip.empty?
+        return File.expand_path(path) if path.start_with?("~")
+
+        path
+      end
+
       # Format tool call for display - can be overridden by subclasses
       # @param args [Hash] The arguments passed to the tool
       # @return [String] Formatted call description (e.g., "Read(file.rb)")
