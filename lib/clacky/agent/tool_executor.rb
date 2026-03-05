@@ -16,8 +16,6 @@ module Clacky
         when :confirm_safes
           # Use SafeShell integration for safety check
           is_safe_operation?(tool_name, tool_params)
-        when :plan_only
-          false
         else
           false
         end
@@ -214,16 +212,6 @@ module Clacky
         {
           id: call[:id],
           content: JSON.generate(tool_content)
-        }
-      end
-
-      # Build planned result for plan-only mode
-      # @param call [Hash] Tool call
-      # @return [Hash] Formatted planned result
-      def build_planned_result(call)
-        {
-          id: call[:id],
-          content: JSON.generate({ planned: true, message: "Tool execution skipped (plan mode)" })
         }
       end
 

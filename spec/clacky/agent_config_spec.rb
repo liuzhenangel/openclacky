@@ -451,18 +451,6 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
-  describe "#is_plan_only?" do
-    it "returns true when permission_mode is plan_only" do
-      config = described_class.new(permission_mode: :plan_only)
-      expect(config.is_plan_only?).to be true
-    end
-
-    it "returns false for other permission modes" do
-      config = described_class.new(permission_mode: :auto_approve)
-      expect(config.is_plan_only?).to be false
-    end
-  end
-
   describe "type field support" do
     describe "#find_model_by_type" do
       it "returns model with specified type" do

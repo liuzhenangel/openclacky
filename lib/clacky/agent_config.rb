@@ -148,7 +148,7 @@ module Clacky
     # Default model for ClaudeCode environment
     CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-5"
 
-    PERMISSION_MODES = [:auto_approve, :confirm_safes, :plan_only].freeze
+    PERMISSION_MODES = [:auto_approve, :confirm_safes].freeze
 
     attr_accessor :permission_mode, :max_tokens, :verbose,
                   :enable_compression, :enable_prompt_caching,
@@ -395,10 +395,6 @@ module Clacky
       end
       
       true
-    end
-
-    def is_plan_only?
-      @permission_mode == :plan_only
     end
 
     private def validate_permission_mode(mode)

@@ -27,7 +27,6 @@ module Clacky
       Permission modes:
         auto_approve    - Automatically execute all tools (use with caution)
         confirm_safes   - Auto-approve safe operations, confirm risky ones (default)
-        plan_only       - Generate plan without executing
 
       UI themes:
         hacker          - Matrix/hacker-style with bracket symbols (default)
@@ -42,7 +41,7 @@ module Clacky
         $ clacky agent --mode=auto_approve --path /path/to/project
     LONGDESC
     option :mode, type: :string, default: "confirm_safes",
-           desc: "Permission mode: auto_approve, confirm_safes, plan_only"
+           desc: "Permission mode: auto_approve, confirm_safes"
     option :theme, type: :string, default: "hacker",
            desc: "UI theme: hacker, minimal (default: hacker)"
     option :verbose, type: :boolean, aliases: "-v", default: false, desc: "Show detailed output"

@@ -1232,8 +1232,6 @@ module Clacky
             :magenta
           when /confirm_safes/
             :cyan
-          when /plan_only/
-            :blue
           else
             :white
           end

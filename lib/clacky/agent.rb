@@ -389,12 +389,6 @@ module Clacky
           end
         else
           # Permission check (if not in auto-approve mode)
-          if @config.is_plan_only?
-            @ui&.show_info("Planned: #{call[:name]}")
-            results << build_planned_result(call)
-            next
-          end
-
           confirmation = confirm_tool_use?(call)
           unless confirmation[:approved]
             # Show denial warning only for user-initiated denials (not system-injected preview errors)
