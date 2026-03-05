@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-03-07
+
+### Added
+- Cursor-paginated message history in web UI for large session navigation
+- `confirm_all` permission mode for WebUI human sessions
+- Re-run onboard entry in settings panel
+
+### Fixed
+- Expand `~` in file system tools path arguments (file_reader, glob, grep, write, edit)
+- Sort sessions newest-first with scheduled sessions at bottom
+- Tasks and skills sidebar items now static — no longer disappear on scroll
+- Delete task now also removes associated schedules
+
+### More
+- Add frontmatter (`name`, `description`, `disable-model-invocation`, `user-invocable`) to onboard skill
+
 ## [0.7.8] - 2026-03-06
 
 ### Added
