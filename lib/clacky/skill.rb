@@ -30,6 +30,13 @@ module Clacky
     attr_reader :allowed_tools, :context, :agent_type, :argument_hint, :hooks
     attr_reader :fork_agent, :model, :forbidden_tools, :auto_summarize
 
+    # Check if this skill is disabled (disable-model-invocation: true)
+    # @return [Boolean]
+    def disabled?
+      @disable_model_invocation == true
+    end
+
+
     # @param directory [Pathname, String] Path to the skill directory
     # @param source_path [Pathname, String, nil] Optional source path for priority resolution
     def initialize(directory, source_path: nil)

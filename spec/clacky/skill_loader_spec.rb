@@ -178,6 +178,49 @@ RSpec.describe Clacky::SkillLoader do
     end
   end
 
+  describe "#toggle_skill" do
+    let(:loader) { described_class.new(working_dir) }
+
+    before do
+      loader.create_skill("my-skill", "Skill content", "A toggleable skill", location: :project)
+    end
+
+    let(:skill_file) do
+      File.join(working_dir, ".clacky", "skills", "my-skill", "SKILL.md")
+    end
+
+    it "writes disable-model-invocation: false when enabling" do
+      loader.toggle_skill("my-skill", enabled: true)
+      content = File.read(skill_file)
+      expect(content).to include("disable-model-invocation: false")
+    end
+
+    it "writes disable-model-invocation: true when disabling" do
+      loader.toggle_skill("my-skill", enabled: false)
+      content = File.read(skill_file)
+      expect(content).to include("disable-model-invocation: true")
+    end
+
+    it "can toggle back to enabled after disabling" do
+      loader.toggle_skill("my-skill", enabled: false)
+      loader.toggle_skill("my-skill", enabled: true)
+      content = File.read(skill_file)
+      expect(content).to include("disable-model-invocation: false")
+    end
+
+    it "raises error for system skills" do
+      expect do
+        loader.toggle_skill("skill-add", enabled: false)
+      end.to raise_error(Clacky::AgentError, /Cannot toggle system skill/)
+    end
+
+    it "raises error for unknown skill" do
+      expect do
+        loader.toggle_skill("nonexistent", enabled: true)
+      end.to raise_error(Clacky::AgentError, /Skill not found/)
+    end
+  end
+
   describe "#delete_skill" do
     it "deletes an existing skill" do
       # First create a skill

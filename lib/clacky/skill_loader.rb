@@ -208,6 +208,34 @@ module Clacky
       load_single_skill(skill_dir, skill_dir, name, source_type)
     end
 
+    # Toggle a skill's disable-model-invocation field in its SKILL.md.
+    # System skills (source: :default) cannot be toggled — raises AgentError.
+    # @param name [String] Skill identifier
+    # @param enabled [Boolean] true = enable, false = disable
+    # @return [Skill] The reloaded skill
+    def toggle_skill(name, enabled:)
+      skill = @skills[name]
+      raise Clacky::AgentError, "Skill not found: #{name}" unless skill
+      raise Clacky::AgentError, "Cannot toggle system skill: #{name}" if @loaded_from[name] == :default
+
+      skill_file = skill.directory.join("SKILL.md")
+      fm = (skill.frontmatter || {}).dup
+
+      if enabled
+        fm["disable-model-invocation"] = false
+      else
+        fm["disable-model-invocation"] = true
+      end
+
+      skill_file.write(build_skill_content(fm, skill.content))
+
+      # Reload into registry
+      reloaded = Skill.new(skill.directory, source_path: skill.source_path)
+      @skills[reloaded.identifier] = reloaded
+      @skills_by_command[reloaded.slash_command] = reloaded
+      reloaded
+    end
+
     # Delete a skill
     # @param name [String] Skill name
     # @return [Boolean] True if deleted, false if not found
