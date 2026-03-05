@@ -190,10 +190,38 @@ To use this skill, simply say:
    - Commit CHANGELOG.md changes
    - Push to remote repository
 
-### 7. Final Verification
-- Confirm the gem appears on RubyGems.org
-- Check that version information is correct
-- Verify installation works for end users
+### 7. Final Summary
+
+Present a clear, user-facing release summary after all steps complete:
+
+**Format:**
+```
+🎉 v{version} released successfully!
+
+📦 What's new for users:
+
+**New Features**
+- [translate each "Added" item into plain user-facing language]
+
+**Improvements**
+- [translate each "Improved" item into plain user-facing language]
+
+**Bug Fixes**
+- [translate each "Fixed" item into plain user-facing language]
+
+🔗 Links:
+- RubyGems: https://rubygems.org/gems/openclacky/versions/{version}
+- GitHub Release: https://github.com/clacky-ai/open-clacky/releases/tag/v{version}
+
+Install/upgrade: gem install openclacky
+```
+
+**Rules for writing the summary:**
+- Write from the user's perspective — what can they now do, or what problem is now fixed
+- Avoid technical jargon (no "cursor-paginated", "frontmatter", "REST API" — explain what it means instead)
+- Skip "More" / chore items unless they directly affect users
+- Keep each bullet to one sentence, action-oriented
+- Example translation: `fix: expand ~ in file system tools path arguments` → "File paths starting with `~` (home directory) now work correctly in all file tools"
 
 ## Commands Used
 
@@ -248,6 +276,7 @@ gh release create vX.Y.Z \
 - CHANGELOG.md updated with release notes
 - GitHub Release created and visible at https://github.com/clacky-ai/open-clacky/releases
 - No build or deployment errors
+- User-facing release summary presented at the end
 
 ## Error Handling
 
