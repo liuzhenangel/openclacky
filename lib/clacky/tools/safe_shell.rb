@@ -357,7 +357,7 @@ module Clacky
         # Parse chmod command to ensure it's safe
         begin
           parts = Shellwords.split(command)
-        rescue Shellwords::BadQuotedString => e
+        rescue ArgumentError => e
           # If Shellwords.split fails, use simple split as fallback
           parts = command.split(/\s+/)
         end
@@ -399,7 +399,7 @@ module Clacky
         # Check basic file operation commands
         begin
           parts = Shellwords.split(command)
-        rescue Shellwords::BadQuotedString => e
+        rescue ArgumentError => e
           # If Shellwords.split fails due to quote issues, try simple split as fallback
           # This handles cases where paths don't actually need shell escaping
           parts = command.split(/\s+/)
@@ -453,7 +453,7 @@ module Clacky
       def parse_rm_files(command)
         begin
           parts = Shellwords.split(command)
-        rescue Shellwords::BadQuotedString => e
+        rescue ArgumentError => e
           # If Shellwords.split fails, use simple split as fallback
           parts = command.split(/\s+/)
         end
