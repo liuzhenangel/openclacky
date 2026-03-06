@@ -78,7 +78,9 @@ module Clacky
         context += "CRITICAL SKILL USAGE RULES:\n"
         context += "- When user's request matches a skill description, you MUST use invoke_skill tool\n"
         context += "- NEVER implement skill functionality yourself - always delegate to the skill\n"
-        context += "- Example: invoke_skill(skill_name: 'code-explorer', task: 'Analyze project structure')\n\n"
+        context += "- Example: invoke_skill(skill_name: 'code-explorer', task: 'Analyze project structure')\n"
+        context += "- SLASH COMMAND (HIGHEST PRIORITY): If user input starts with /skill_name, you MUST invoke_skill immediately as the first action with no exceptions.\n"
+        context += "\n"
         context += "Available skills:\n\n"
 
         auto_invocable.each do |skill|

@@ -169,8 +169,9 @@ module Clacky
 
         page.each do |round|
           msg = round[:user_msg]
+          display_text = extract_text_from_content(msg[:content])
           # Emit user message with its timestamp for dedup on the frontend
-          ui.show_user_message(extract_text_from_content(msg[:content]), created_at: msg[:created_at])
+          ui.show_user_message(display_text, created_at: msg[:created_at])
 
           round[:events].each do |ev|
             case ev[:role].to_s
