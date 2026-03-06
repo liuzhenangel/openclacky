@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-06
+
+### Added
+- White-label brand licensing system: customize the web UI with your own name, logo, colors, and skills via `brand_config.yml`
+- Brand skills tab in the web UI with private badge, shown only when brand skills are configured
+- Slash command prompt rule: skill invocations (e.g. `/skill-name`) are now expanded inside the agent at run time, enabling mid-session skill triggering
+
+### Improved
+- Server-side brand name rendering eliminates the first-paint brand name flash in the web UI
+- Collapsible tool call blocks in the web UI — long tool outputs are now grouped and collapsed by default
+- `safe_shell` now catches `ArgumentError` in addition to `BadQuotedString` for more robust command parsing
+- Eliminated `Dir.chdir` global state in session handling, fixing race conditions in concurrent sessions
+
+### Fixed
+- Skill slash commands are now expanded inside `agent.run` so that `/onboard` and similar commands work correctly when triggered mid-session
+- Observer state machine handles `awaiting` state transitions properly
+
+### More
+- Disabled ClaudeCode `ANTHROPIC_API_KEY` environment variable fallback in `AgentConfig` for cleaner env isolation
+- Updated gemspec, lockfile, and install script
+- Added web asset syntax specs and brand config specs
+
 ## [0.7.9] - 2026-03-07
 
 ### Added
