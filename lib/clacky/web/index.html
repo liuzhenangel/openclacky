@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clacky</title>
+  <title id="page-title">Clacky</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
   <!-- ── SIDEBAR ──────────────────────────────────────────────────────── -->
   <aside id="sidebar">
     <div id="sidebar-header">
-      <span class="logo">⚡ Clacky</span>
+      <span class="logo" id="sidebar-logo">Clacky</span>
       <button id="btn-new-session" title="New Session">＋</button>
     </div>
 
@@ -65,8 +65,8 @@
     <!-- Onboard panel (shown on first run) -->
     <div id="onboard-panel" style="display:none">
       <div id="onboard-inner">
-        <div class="onboard-logo">⚡</div>
-        <h1 class="onboard-title">Welcome to Clacky</h1>
+        <div class="onboard-logo"></div>
+        <h1 class="onboard-title" id="onboard-title">Welcome to Clacky</h1>
         <p class="onboard-subtitle" id="onboard-subtitle">Let's get you set up in a minute.</p>
 
         <!-- Step indicators -->
@@ -114,7 +114,7 @@
         <div id="onboard-phase-soul" style="display:none">
           <p class="onboard-phase-title">Personalize your assistant</p>
           <p class="onboard-phase-desc">
-            Takes about 30 seconds. Clacky will ask you two quick things via interactive cards.
+            Takes about 30 seconds. You'll be asked two quick questions via interactive cards.
           </p>
           <div class="onboard-actions onboard-actions-split">
             <button id="onboard-btn-start-soul" class="onboard-btn-primary">Let's go →</button>
@@ -124,10 +124,32 @@
       </div>
     </div>
 
+    <!-- Brand activation panel (shown when branded but not yet activated) -->
+    <div id="brand-panel" style="display:none">
+      <div id="brand-inner">
+        <h1 class="onboard-title" id="brand-title">Activate Your License</h1>
+        <p class="onboard-subtitle" id="brand-subtitle">Enter your license key to get started.</p>
+
+        <div class="onboard-field">
+          <label class="onboard-label">License Key</label>
+          <input id="brand-license-key" type="text" class="onboard-input"
+                 placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+                 autocomplete="off" spellcheck="false">
+        </div>
+
+        <div id="brand-activate-result" class="onboard-test-result"></div>
+
+        <div class="onboard-actions onboard-actions-split">
+          <button id="brand-btn-activate" class="onboard-btn-primary">Activate</button>
+          <button id="brand-btn-skip" class="onboard-btn-secondary">Skip for now</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Welcome screen -->
     <div id="welcome" class="centered">
-      <div class="welcome-icon">⚡</div>
-      <h2>Welcome to Clacky</h2>
+      <div class="welcome-icon" style="display:none"></div>
+      <h2 id="welcome-title">Welcome to Clacky</h2>
       <p>Create a new session or select one from the sidebar.</p>
       <button id="btn-welcome-new">New Session</button>
     </div>
@@ -224,6 +246,47 @@
           </div>
         </section>
 
+        <!-- Brand & License section -->
+        <section class="settings-section" id="brand-license-section">
+          <div class="settings-section-title">
+            <span>Brand &amp; License</span>
+          </div>
+
+          <!-- Current brand status (shown when already activated) -->
+          <div id="brand-status-card" class="brand-status-card" style="display:none">
+            <div class="brand-status-row">
+              <span class="brand-status-label">Brand</span>
+              <span class="brand-status-value" id="brand-status-name">—</span>
+            </div>
+            <div class="brand-status-row">
+              <span class="brand-status-label">Status</span>
+              <span class="brand-status-value" id="brand-status-badge">—</span>
+            </div>
+            <div class="brand-status-row">
+              <span class="brand-status-label">Expires</span>
+              <span class="brand-status-value" id="brand-status-expires">—</span>
+            </div>
+            <div class="brand-status-actions">
+              <button id="btn-rebind-license" class="btn-settings-action">Change License Key</button>
+            </div>
+          </div>
+
+          <!-- Activation form (shown when not yet activated) -->
+          <div id="brand-activate-form" class="brand-activate-form">
+            <p class="brand-activate-desc">
+              Have a license key from a brand partner? Enter it below to activate branded mode.
+            </p>
+            <div class="brand-activate-fields">
+              <input id="settings-license-key" type="text" class="field-input"
+                     placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+                     autocomplete="off" spellcheck="false">
+              <button id="btn-settings-activate" class="btn-primary">Activate</button>
+            </div>
+            <div id="settings-activate-result" class="model-test-result"></div>
+          </div>
+
+        </section>
+
       </div>
     </div>
 
@@ -247,6 +310,7 @@
 <script src="/skills.js"></script>
 <script src="/settings.js"></script>
 <script src="/onboard.js"></script>
+<script src="/brand.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

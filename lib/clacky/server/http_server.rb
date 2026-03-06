@@ -9,6 +9,7 @@ require "uri"
 require_relative "session_registry"
 require_relative "web_ui_controller"
 require_relative "scheduler"
+require_relative "../brand_config"
 
 module Clacky
   module Server
@@ -78,11 +79,12 @@ module Clacky
         - Breaking big goals into small, executable steps
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false)
         @host           = host
         @port           = port
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
+        @brand_test     = brand_test      # when true, skip remote API calls for license activation
         @registry       = SessionRegistry.new
         @ws_clients     = {}  # session_id => [WebSocketConnection, ...]
         @ws_mutex       = Mutex.new
@@ -174,6 +176,9 @@ module Clacky
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
         when ["POST",   "/api/onboard/complete"]  then api_onboard_complete(req, res)
         when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(res)
+        when ["GET",    "/api/brand/status"]      then api_brand_status(res)
+        when ["POST",   "/api/brand/activate"]    then api_brand_activate(req, res)
+        when ["GET",    "/api/brand"]             then api_brand_info(res)
         else
           if method == "GET" && path.match?(%r{^/api/sessions/[^/]+/messages$})
             session_id = path.sub("/api/sessions/", "").sub("/messages", "")
@@ -265,6 +270,80 @@ module Clacky
           File.write(soul_path, DEFAULT_SOUL_MD)
         end
         json_response(res, 200, { ok: true })
+      end
+
+      # ── Brand API ─────────────────────────────────────────────────────────────
+
+      # GET /api/brand/status
+      # Returns whether brand activation is needed.
+      # Mirrors the onboard/status pattern so the frontend can gate on it.
+      #
+      # Response:
+      #   { branded: false }                              → no brand, nothing to do
+      #   { branded: true, needs_activation: true,
+      #     brand_name: "JohnAI" }                       → license key required
+      #   { branded: true, needs_activation: false,
+      #     brand_name: "JohnAI", warning: "..." }       → activated, possible warning
+      def api_brand_status(res)
+        brand = Clacky::BrandConfig.load
+
+        unless brand.branded?
+          json_response(res, 200, { branded: false })
+          return
+        end
+
+        unless brand.activated?
+          json_response(res, 200, {
+            branded: true,
+            needs_activation: true,
+            brand_name: brand.brand_name
+          })
+          return
+        end
+
+        warning = nil
+        if brand.expired?
+          warning = "Your #{brand.brand_name} license has expired. Please renew to continue."
+        elsif brand.grace_period_exceeded?
+          warning = "License server unreachable for more than 3 days. Please check your connection."
+        end
+
+        json_response(res, 200, {
+          branded:          true,
+          needs_activation: false,
+          brand_name:       brand.brand_name,
+          warning:          warning
+        })
+      end
+
+      # POST /api/brand/activate
+      # Body: { license_key: "XXXX-XXXX-XXXX-XXXX-XXXX" }
+      # Activates the license and persists the result to brand.yml.
+      def api_brand_activate(req, res)
+        body = parse_json_body(req)
+        key  = body["license_key"].to_s.strip
+
+        if key.empty?
+          json_response(res, 422, { ok: false, error: "license_key is required" })
+          return
+        end
+
+        brand  = Clacky::BrandConfig.load
+        result = @brand_test ? brand.activate_mock!(key) : brand.activate!(key)
+
+        if result[:success]
+          json_response(res, 200, { ok: true, brand_name: result[:brand_name] || brand.brand_name })
+        else
+          json_response(res, 422, { ok: false, error: result[:message] })
+        end
+      end
+
+      # GET /api/brand
+      # Returns brand metadata consumed by the WebUI on boot
+      # to dynamically replace branding strings.
+      def api_brand_info(res)
+        brand = Clacky::BrandConfig.load
+        json_response(res, 200, brand.to_h)
       end
 
       # ── Schedules API ─────────────────────────────────────────────────────────
@@ -680,9 +759,7 @@ module Clacky
         broadcast_session_update(session_id)
 
         thread = Thread.new do
-          Dir.chdir(session[:working_dir]) do
-            agent.run(content, images: images)
-          end
+          agent.run(content, images: images)
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
 
@@ -735,7 +812,7 @@ module Clacky
         broadcast_session_update(session_id)
 
         thread = Thread.new do
-          Dir.chdir(working_dir) { agent.run(prompt) }
+          agent.run(prompt)
           @registry.update(session_id, status: :idle)
           broadcast_session_update(session_id)
         rescue Clacky::AgentInterrupted

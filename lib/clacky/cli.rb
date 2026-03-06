@@ -6,6 +6,7 @@ require "fileutils"
 require_relative "ui2"
 require_relative "json_ui_controller"
 require_relative "plain_ui_controller"
+require_relative "brand_config"
 
 module Clacky
   class CLI < Thor
@@ -224,6 +225,85 @@ module Clacky
           end
         rescue StandardError => e
           ui_controller.show_error("Time Machine failed: #{e.message}")
+        end
+      end
+
+      # ── Brand license check (CLI mode) ──────────────────────────────────────
+      #
+      # Called at the start of run_agent_with_ui2, before UI2 raw mode begins.
+      # Uses Thor's say + tty-prompt for interaction (both are existing dependencies).
+      #
+      # Flow:
+      #   not branded       -> skip (standard OpenClacky experience)
+      #   branded, no key   -> prompt for license key and activate
+      #   branded, expired  -> warn and continue
+      #   branded, active   -> send heartbeat if interval elapsed (once per day)
+      private def check_brand_license_cli
+        brand = Clacky::BrandConfig.load
+        return unless brand.branded?
+
+        unless brand.activated?
+          cli_prompt_license_activation(brand)
+          return
+        end
+
+        if brand.expired?
+          say ""
+          say "WARNING: Your #{brand.brand_name} license has expired. Please renew to continue.", :yellow
+          say ""
+          return
+        end
+
+        if brand.heartbeat_due?
+          result = brand.heartbeat!
+          unless result[:success]
+            if brand.grace_period_exceeded?
+              say ""
+              say "WARNING: Could not reach the #{brand.brand_name} license server.", :yellow
+              say "License has been offline for more than 3 days. Please check your connection.", :yellow
+              say ""
+            else
+              say "(License heartbeat failed - will retry tomorrow.)", :cyan
+            end
+          end
+        end
+      end
+
+      # Interactive license key prompt using tty-prompt.
+      private def cli_prompt_license_activation(brand)
+        prompt = TTY::Prompt.new
+
+        say ""
+        say "Welcome to #{brand.brand_name}!", :cyan
+        say "A license key is required to activate this installation."
+        say ""
+
+        loop do
+          key = prompt.ask("Enter your license key (XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX):",
+                           required: false) { |q| q.modify :strip }
+
+          if key.nil? || key.empty?
+            say "No key entered. You can activate later by re-launching.", :yellow
+            say ""
+            return
+          end
+
+          unless key.match?(/\A[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{8}){4}\z/)
+            say "Invalid key format. Expected: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX", :red
+            next
+          end
+
+          say "Activating..."
+          result = brand.activate!(key)
+
+          if result[:success]
+            say result[:message], :green
+            say ""
+            return
+          else
+            say result[:message], :red
+            say "(Press Enter to skip activation.)"
+          end
         end
       end
 
@@ -468,6 +548,9 @@ module Clacky
 
       # Run agent with UI2 split-screen interface
       def run_agent_with_ui2(agent, working_dir, agent_config, session_manager = nil, client = nil, is_session_load: false)
+        # Brand license check — must happen before UI2 starts (raw terminal mode conflict)
+        check_brand_license_cli
+
         # Detect terminal background BEFORE starting UI2 to avoid output interference
         is_dark_bg = UI2::TerminalDetector.detect_dark_background
         
@@ -705,10 +788,25 @@ module Clacky
     LONGDESC
     option :host, type: :string, default: "127.0.0.1", desc: "Bind host (default: 127.0.0.1)"
     option :port, type: :numeric, default: 7070, desc: "Listen port (default: 7070)"
+    option :brand_test, type: :boolean, default: false,
+           desc: "Enable brand test mode: mock license activation without calling remote API"
     def server
       require_relative "server/http_server"
 
       agent_config = Clacky::AgentConfig.load
+
+      if options[:brand_test]
+        say "⚡ Brand test mode — license activation uses mock data (no remote API calls).", :yellow
+        say ""
+        say "  Test license keys (paste any into Settings → Brand & License):", :cyan
+        say ""
+        say "    00000001-FFFFFFFF-DEADBEEF-CAFEBABE-00000001  →  Brand1"
+        say "    00000002-FFFFFFFF-DEADBEEF-CAFEBABE-00000002  →  Brand2"
+        say "    00000003-FFFFFFFF-DEADBEEF-CAFEBABE-00000003  →  Brand3"
+        say ""
+        say "  To reset: rm ~/.clacky/brand.yml", :cyan
+        say ""
+      end
 
       # Factory so each new session gets a fresh Client instance
       client_factory = lambda do
@@ -723,7 +821,8 @@ module Clacky
         host:           options[:host],
         port:           options[:port],
         agent_config:   agent_config,
-        client_factory: client_factory
+        client_factory: client_factory,
+        brand_test:     options[:brand_test]
       ).start
     end
   end

@@ -6,7 +6,11 @@ require_relative "../../version"
 module Clacky
   module UI2
     module Components
-      # WelcomeBanner displays the startup screen with ASCII logo, tagline, tips, and agent info
+      # WelcomeBanner displays the startup screen with ASCII logo, tagline, tips, and agent info.
+      #
+      # When a brand_name is configured via BrandConfig, the hardcoded OPENCLACKY
+      # ASCII art is replaced by a dynamically generated logo using artii (FIGlet).
+      # Falls back to plain text when the terminal is too narrow or artii fails.
       class WelcomeBanner
         LOGO = <<~'LOGO'
            ██████╗ ██████╗ ███████╗███╗   ██╗ ██████╗██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗
@@ -29,6 +33,9 @@ module Clacky
         # Minimum terminal width required for full logo display
         MIN_WIDTH_FOR_LOGO = 90
 
+        # Artii font used for brand name generation
+        ARTII_FONT = "big"
+
         def initialize
           @pastel = Pastel.new
         end
@@ -44,13 +51,7 @@ module Clacky
         def render_logo(width:)
           lines = []
           lines << ""
-          
-          if width >= MIN_WIDTH_FOR_LOGO
-            lines << @pastel.bright_green(LOGO)
-          else
-            lines << @pastel.bright_green("Welcome, OpenClacky is here")
-          end
-          
+          lines << logo_content(width)
           lines << ""
           lines.join("\n")
         end
@@ -61,13 +62,7 @@ module Clacky
         def render_startup(width:)
           lines = []
           lines << ""
-          
-          if width >= MIN_WIDTH_FOR_LOGO
-            lines << @pastel.bright_green(LOGO)
-          else
-            lines << @pastel.bright_green("Welcome, OpenClacky is here")
-          end
-          
+          lines << logo_content(width)
           lines << ""
           lines << @pastel.bright_cyan(TAGLINE)
           lines << @pastel.dim("    Version #{Clacky::VERSION}")
@@ -113,14 +108,69 @@ module Clacky
 
         private
 
-        def info_line(label, value)
+        # Returns the colourised logo block.
+        # - Branded install: dynamically generated artii ASCII art for the brand name
+        # - Standard install: hardcoded OPENCLACKY block-letter logo
+        # Falls back to plain text when the terminal is too narrow or artii fails.
+        private def logo_content(width)
+          brand = brand_config
+          if brand.branded?
+            generate_brand_logo(brand.brand_name, width)
+          else
+            if width >= MIN_WIDTH_FOR_LOGO
+              @pastel.bright_green(LOGO)
+            else
+              @pastel.bright_green("Welcome, OpenClacky is here")
+            end
+          end
+        end
+
+        # Generate a brand-name ASCII art logo using artii.
+        # Falls back gracefully when artii is unavailable or terminal too narrow.
+        private def generate_brand_logo(brand_name, width)
+          art = artii_render(brand_name)
+
+          if art && art_fits?(art, width)
+            @pastel.bright_green(art)
+          elsif art
+            # Terminal too narrow for full art — centre-clip or use plain fallback
+            @pastel.bright_green(brand_name)
+          else
+            @pastel.bright_green(brand_name)
+          end
+        end
+
+        # Render text using artii. Returns nil on any failure.
+        private def artii_render(text)
+          require "artii"
+          a = Artii::Base.new(font: ARTII_FONT)
+          a.asciify(text)
+        rescue LoadError, StandardError
+          nil
+        end
+
+        # Check whether the ASCII art fits within the terminal width.
+        private def art_fits?(art, width)
+          art.lines.map { |l| l.chomp.length }.max.to_i <= width
+        end
+
+        # Lazily load and cache BrandConfig to avoid circular require issues.
+        private def brand_config
+          require_relative "../../brand_config"
+          Clacky::BrandConfig.load
+        rescue LoadError, StandardError
+          # Return a neutral stub when brand_config is unavailable
+          Object.new.tap { |o| o.define_singleton_method(:branded?) { false } }
+        end
+
+        private def info_line(label, value)
           label_text = @pastel.cyan("[#{label}]")
           value_text = theme.format_text(value, :info)
           "    #{label_text} #{value_text}"
         end
 
-        def separator(char = "-")
-          theme.format_text(char * 80, :thinking)  # Use :thinking for subtle separator
+        private def separator(char = "-")
+          theme.format_text(char * 80, :thinking)
         end
       end
     end

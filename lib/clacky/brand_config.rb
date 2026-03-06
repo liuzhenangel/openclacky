@@ -1,0 +1,309 @@
+# frozen_string_literal: true
+
+require "yaml"
+require "fileutils"
+require "digest"
+require "openssl"
+require "securerandom"
+require "json"
+require "time"
+require "socket"
+
+module Clacky
+  # BrandConfig manages white-label branding for the OpenClacky gem.
+  #
+  # Brand information is stored separately in ~/.clacky/brand.yml to avoid
+  # polluting the main config.yml. When no brand_name is configured, the
+  # gem behaves exactly like the standard OpenClacky experience.
+  #
+  # brand.yml structure:
+  #   brand_name: "JohnAI"
+  #   license_key: "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4"
+  #   license_activated_at: "2025-03-01T00:00:00Z"
+  #   license_expires_at: "2026-03-01T00:00:00Z"
+  #   license_last_heartbeat: "2025-03-05T00:00:00Z"
+  #   device_id: "abc123def456..."
+  class BrandConfig
+    CONFIG_DIR  = File.join(Dir.home, ".clacky")
+    BRAND_FILE  = File.join(CONFIG_DIR, "brand.yml")
+
+    # OpenClacky Cloud API base URL
+    API_BASE_URL = "https://openclacky.com"
+
+    # How often to send a heartbeat (seconds) — once per day
+    HEARTBEAT_INTERVAL = 86_400
+
+    # Grace period for offline heartbeat failures (3 days)
+    HEARTBEAT_GRACE_PERIOD = 3 * 86_400
+
+    attr_reader :brand_name, :license_key, :license_activated_at,
+                :license_expires_at, :license_last_heartbeat, :device_id,
+                :brand_command
+
+    def initialize(attrs = {})
+      @brand_name              = attrs["brand_name"]
+      @brand_command           = attrs["brand_command"]
+      @license_key             = attrs["license_key"]
+      @license_activated_at    = parse_time(attrs["license_activated_at"])
+      @license_expires_at      = parse_time(attrs["license_expires_at"])
+      @license_last_heartbeat  = parse_time(attrs["license_last_heartbeat"])
+      @device_id               = attrs["device_id"]
+    end
+
+    # Load brand configuration from ~/.clacky/brand.yml.
+    # Returns an empty BrandConfig (no brand) if the file does not exist.
+    def self.load
+      return new({}) unless File.exist?(BRAND_FILE)
+
+      data = YAML.safe_load(File.read(BRAND_FILE)) || {}
+      new(data)
+    rescue StandardError
+      new({})
+    end
+
+    # Returns true when this installation has a brand name configured.
+    def branded?
+      !@brand_name.nil? && !@brand_name.strip.empty?
+    end
+
+    # Returns true when a license key has been stored (post-activation).
+    def activated?
+      !@license_key.nil? && !@license_key.strip.empty?
+    end
+
+    # Returns true when the license has passed its expiry date.
+    def expired?
+      return false if @license_expires_at.nil?
+
+      Time.now.utc > @license_expires_at
+    end
+
+    # Returns true when a heartbeat should be sent (interval elapsed).
+    def heartbeat_due?
+      return true if @license_last_heartbeat.nil?
+
+      (Time.now.utc - @license_last_heartbeat) >= HEARTBEAT_INTERVAL
+    end
+
+    # Returns true when the grace period for missed heartbeats has expired.
+    def grace_period_exceeded?
+      return false if @license_last_heartbeat.nil?
+
+      (Time.now.utc - @license_last_heartbeat) >= HEARTBEAT_GRACE_PERIOD
+    end
+
+    # Save current state to ~/.clacky/brand.yml
+    def save
+      FileUtils.mkdir_p(CONFIG_DIR)
+      File.write(BRAND_FILE, to_yaml)
+      FileUtils.chmod(0o600, BRAND_FILE)
+    end
+
+    # Activate the license against the OpenClacky Cloud API using HMAC proof.
+    # Returns a result hash: { success: bool, message: String, data: Hash }
+    def activate!(license_key)
+      @license_key = license_key.strip
+      @device_id ||= generate_device_id
+
+      user_id  = parse_user_id_from_key(@license_key)
+      key_hash = Digest::SHA256.hexdigest(@license_key)
+      ts       = Time.now.utc.to_i.to_s
+      nonce    = SecureRandom.hex(16)
+      message  = "activate:#{key_hash}:#{user_id}:#{@device_id}:#{ts}:#{nonce}"
+      proof    = OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
+
+      payload = {
+        key_hash:    key_hash,
+        user_id:     user_id.to_s,
+        device_id:   @device_id,
+        timestamp:   ts,
+        nonce:       nonce,
+        proof:       proof,
+        device_info: device_info
+      }
+
+      response = api_post("/api/v1/licenses/activate", payload)
+
+      if response[:success] && response[:data]["status"] == "active"
+        data = response[:data]
+        @license_activated_at   = Time.now.utc
+        @license_last_heartbeat = Time.now.utc
+        @license_expires_at     = parse_time(data["expires_at"])
+        # Use brand_name returned by the API; fall back to any existing value
+        @brand_name = data["brand_name"] if data["brand_name"] && !data["brand_name"].to_s.strip.empty?
+        save
+        { success: true, message: "License activated successfully!", brand_name: @brand_name, data: data }
+      else
+        @license_key = nil
+        { success: false, message: response[:error] || "Activation failed", data: {} }
+      end
+    end
+
+    # Activate the license locally without calling the remote API.
+    # Used in brand-test mode for development and integration testing.
+    #
+    # The mock derives a plausible brand_name from the key's first segment
+    # (e.g. "0000002A" → user_id 42 → "Brand42") unless one is already set.
+    # A fixed 1-year expiry is written so the UI can display a realistic date.
+    #
+    # Returns the same { success:, message:, brand_name:, data: } shape as activate!
+    def activate_mock!(license_key)
+      @license_key = license_key.strip
+      @device_id ||= generate_device_id
+
+      # Always derive brand_name fresh from the key in mock mode,
+      # so switching keys produces a different brand each time.
+      user_id     = parse_user_id_from_key(@license_key)
+      @brand_name = "Brand#{user_id}"
+
+      @license_activated_at   = Time.now.utc
+      @license_last_heartbeat = Time.now.utc
+      @license_expires_at     = Time.now.utc + (365 * 86_400)  # 1 year from now
+      save
+
+      {
+        success:    true,
+        message:    "License activated (mock mode).",
+        brand_name: @brand_name,
+        data:       { status: "active", expires_at: @license_expires_at.iso8601 }
+      }
+    end
+
+    # Send a heartbeat to the API and update last_heartbeat timestamp.
+    # Returns a result hash: { success: bool, message: String }
+    def heartbeat!
+      return { success: false, message: "License not activated" } unless activated?
+
+      user_id   = parse_user_id_from_key(@license_key)
+      ts        = Time.now.utc.to_i.to_s
+      nonce     = SecureRandom.hex(16)
+      message   = "#{user_id}:#{@device_id}:#{ts}:#{nonce}"
+      signature = OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
+
+      payload = {
+        user_id:   user_id.to_s,
+        device_id: @device_id,
+        timestamp: ts,
+        nonce:     nonce,
+        signature: signature
+      }
+
+      response = api_post("/api/v1/licenses/heartbeat", payload)
+
+      if response[:success]
+        @license_last_heartbeat = Time.now.utc
+        @license_expires_at = parse_time(response[:data]["expires_at"]) if response[:data]["expires_at"]
+        save
+        { success: true, message: "Heartbeat OK" }
+      else
+        { success: false, message: response[:error] || "Heartbeat failed" }
+      end
+    end
+
+    # Returns a hash representation for JSON serialization (e.g. /api/brand).
+    def to_h
+      {
+        brand_name:         @brand_name,
+        brand_command:      @brand_command,
+        branded:            branded?,
+        activated:          activated?,
+        expired:            expired?,
+        license_expires_at: @license_expires_at&.iso8601
+      }
+    end
+
+    private
+
+    def to_yaml
+      data = {}
+      data["brand_name"]             = @brand_name             if @brand_name
+      data["brand_command"]          = @brand_command          if @brand_command
+      data["license_key"]            = @license_key            if @license_key
+      data["license_activated_at"]   = @license_activated_at.iso8601   if @license_activated_at
+      data["license_expires_at"]     = @license_expires_at.iso8601     if @license_expires_at
+      data["license_last_heartbeat"] = @license_last_heartbeat.iso8601 if @license_last_heartbeat
+      data["device_id"]              = @device_id              if @device_id
+      YAML.dump(data)
+    end
+
+    # Parse user_id from the License Key structure.
+    # Key format: UUUUUUUU-PPPPPPPP-RRRRRRRR-RRRRRRRR-CCCCCCCC
+    private def parse_user_id_from_key(key)
+      hex = key.delete("-").upcase
+      hex[0..7].to_i(16)
+    end
+
+    # Generate a stable device ID based on system identifiers.
+    private def generate_device_id
+      components = [
+        Socket.gethostname,
+        ENV["USER"] || ENV["USERNAME"] || "",
+        RUBY_PLATFORM
+      ]
+      Digest::SHA256.hexdigest(components.join(":"))
+    end
+
+    # Build device metadata for the activation request.
+    private def device_info
+      {
+        os:          RUBY_PLATFORM,
+        ruby:        RUBY_VERSION,
+        app_version: Clacky::VERSION
+      }
+    end
+
+    # Parse an ISO 8601 time string, returning nil on failure.
+    private def parse_time(value)
+      return nil if value.nil? || value.to_s.strip.empty?
+
+      Time.parse(value.to_s)
+    rescue ArgumentError
+      nil
+    end
+
+    # POST JSON to the API and return { success:, data:, error: }.
+    private def api_post(path, payload)
+      require "net/http"
+      require "uri"
+
+      uri = URI.parse("#{API_BASE_URL}#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == "https"
+      http.open_timeout = 10
+      http.read_timeout = 15
+
+      request = Net::HTTP::Post.new(uri.path, "Content-Type" => "application/json")
+      request.body = JSON.generate(payload)
+
+      response = http.request(request)
+      body     = JSON.parse(response.body) rescue {}
+
+      if response.code.to_i == 200
+        { success: true, data: body["data"] || body }
+      else
+        error_msg = map_api_error(body["code"])
+        { success: false, error: error_msg, data: body }
+      end
+    rescue StandardError => e
+      { success: false, error: "Network error: #{e.message}", data: {} }
+    end
+
+    # Map API error codes to human-readable messages.
+    API_ERROR_MESSAGES = {
+      "invalid_proof"        => "Invalid license key — please check and try again.",
+      "invalid_signature"    => "Invalid request signature.",
+      "nonce_replayed"       => "Duplicate request detected. Please try again.",
+      "timestamp_expired"    => "System clock is out of sync. Please adjust your time settings.",
+      "license_revoked"      => "This license has been revoked. Please contact support.",
+      "license_expired"      => "This license has expired. Please renew to continue.",
+      "device_limit_reached" => "Device limit reached for this license.",
+      "device_revoked"       => "This device has been revoked from the license.",
+      "invalid_license"      => "License key not found. Please verify the key.",
+      "device_not_found"     => "Device not registered. Please re-activate."
+    }.freeze
+
+    private def map_api_error(code)
+      API_ERROR_MESSAGES[code] || "Activation failed (#{code || 'unknown error'}). Please contact support."
+    end
+  end
+end
