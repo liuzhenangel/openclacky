@@ -125,12 +125,28 @@ module Clacky
         # Mount static file handler for the entire web directory.
         # Use mount_proc so we can inject no-cache headers on every response,
         # preventing stale JS/CSS from being served after a gem update.
+        #
+        # Special case: GET / and GET /index.html are served with server-side
+        # rendering — the {{BRAND_NAME}} placeholder is replaced before delivery
+        # so the correct brand name appears on first paint with no JS flash.
         file_handler = WEBrick::HTTPServlet::FileHandler.new(server, WEB_ROOT,
                                                              FancyIndexing: false)
+        index_html_path = File.join(WEB_ROOT, "index.html")
+
         server.mount_proc("/") do |req, res|
-          file_handler.service(req, res)
-          res["Cache-Control"] = "no-store"
-          res["Pragma"]        = "no-cache"
+          if req.path == "/" || req.path == "/index.html"
+            brand_name = Clacky::BrandConfig.load.brand_name || "Clacky"
+            html = File.read(index_html_path).gsub("{{BRAND_NAME}}", brand_name)
+            res.status                = 200
+            res["Content-Type"]       = "text/html; charset=utf-8"
+            res["Cache-Control"]      = "no-store"
+            res["Pragma"]             = "no-cache"
+            res.body                  = html
+          else
+            file_handler.service(req, res)
+            res["Cache-Control"] = "no-store"
+            res["Pragma"]        = "no-cache"
+          end
         end
 
         puts "🌐 Clacky Web UI running at http://#{@host}:#{@port}"
