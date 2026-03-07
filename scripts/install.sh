@@ -110,7 +110,7 @@ install_via_gem() {
     fi
 
     print_info "Installing OpenClacky gem..."
-    gem install openclacky
+    gem install openclacky --no-document
 
     if [ $? -eq 0 ]; then
         print_success "OpenClacky installed successfully via gem!"
