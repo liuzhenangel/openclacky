@@ -72,6 +72,41 @@ RSpec.describe Clacky::Tools::Glob do
       expect(result[:error]).to include("does not exist")
     end
 
+    it "excludes .git directory and its contents from results" do
+      Dir.mktmpdir do |dir|
+        # Create .git directory with files (simulating a git repo)
+        FileUtils.mkdir_p(File.join(dir, ".git", "refs"))
+        FileUtils.touch(File.join(dir, ".git", "HEAD"))
+        FileUtils.touch(File.join(dir, ".git", "config"))
+        FileUtils.touch(File.join(dir, ".git", "refs", "HEAD"))
+        FileUtils.touch(File.join(dir, "app.rb"))
+
+        result = tool.execute(pattern: "**/*", base_path: dir, limit: 100)
+
+        expect(result[:error]).to be_nil
+        git_files = result[:matches].select { |f| f.include?("/.git/") }
+        expect(git_files).to be_empty, "Expected no .git files but got: #{git_files.inspect}"
+        expect(result[:matches].map { |f| File.basename(f) }).to include("app.rb")
+      end
+    end
+
+    it "excludes .svn and .hg directories from results" do
+      Dir.mktmpdir do |dir|
+        FileUtils.mkdir_p(File.join(dir, ".svn"))
+        FileUtils.touch(File.join(dir, ".svn", "entries"))
+        FileUtils.mkdir_p(File.join(dir, ".hg"))
+        FileUtils.touch(File.join(dir, ".hg", "store"))
+        FileUtils.touch(File.join(dir, "app.rb"))
+
+        result = tool.execute(pattern: "**/*", base_path: dir, limit: 100)
+
+        expect(result[:error]).to be_nil
+        vcs_files = result[:matches].select { |f| f.match?(/\/(\.svn|\.hg)\//) }
+        expect(vcs_files).to be_empty
+        expect(result[:matches].map { |f| File.basename(f) }).to include("app.rb")
+      end
+    end
+
     it "excludes directories from results" do
       Dir.mktmpdir do |dir|
         FileUtils.mkdir(File.join(dir, "subdir"))

@@ -69,9 +69,17 @@ module Clacky
                         else
                           File.join(base_path, pattern)
                         end
+          # Always-ignored directory names that should never appear in results
+          always_ignored_dirs = Clacky::Utils::FileIgnoreHelper::ALWAYS_IGNORED_DIRS
+
           all_matches = Dir.glob(full_pattern, File::FNM_DOTMATCH)
                            .reject { |path| File.directory?(path) }
                            .reject { |path| path.end_with?(".", "..") }
+                           .reject do |path|
+                             # Fast path: reject files inside always-ignored dirs by path component
+                             parts = path.split(File::SEPARATOR)
+                             parts.any? { |part| always_ignored_dirs.include?(part) }
+                           end
 
           # Filter out ignored, binary, and too large files
           matches = all_matches.select do |file|
