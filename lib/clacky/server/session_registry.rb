@@ -17,9 +17,9 @@ module Clacky
       end
 
       # Create a new session and return its id.
-      # Yields the new session hash so the caller can inject agent/ui after creation.
-      def create(name: nil, working_dir: Dir.pwd)
-        session_id = SecureRandom.hex(8)
+      # Pass session_id to reuse an existing id (e.g. when restoring a persisted session).
+      def create(name: nil, working_dir: Dir.pwd, session_id: nil)
+        session_id ||= SecureRandom.hex(8)
         session = {
           id:          session_id,
           name:        name || "Session #{Time.now.strftime('%H:%M')}",

@@ -97,14 +97,15 @@ module Clacky
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
         @brand_test     = brand_test      # when true, skip remote API calls for license activation
-        @registry       = SessionRegistry.new
-        @ws_clients     = {}  # session_id => [WebSocketConnection, ...]
-        @ws_mutex       = Mutex.new
-        @scheduler      = Scheduler.new(
+        @registry        = SessionRegistry.new
+        @session_manager = Clacky::SessionManager.new
+        @ws_clients      = {}  # session_id => [WebSocketConnection, ...]
+        @ws_mutex        = Mutex.new
+        @scheduler       = Scheduler.new(
           session_registry: @registry,
           session_builder:  method(:build_session)
         )
-        @skill_loader   = Clacky::SkillLoader.new
+        @skill_loader    = Clacky::SkillLoader.new
       end
 
       def start
@@ -254,14 +255,27 @@ module Clacky
         json_response(res, 201, { session: @registry.list.find { |s| s[:id] == session_id } })
       end
 
-      # Auto-create a default session when the server starts.
+      # Auto-restore persisted sessions (or create a fresh default) when the server starts.
       # Skipped when no API key is configured (onboard flow will handle it).
+      #
+      # Strategy: load the most recent sessions from ~/.clacky/sessions/ for the
+      # current working directory and restore them into @registry so their IDs are
+      # stable across restarts (frontend hash stays valid). If no persisted sessions
+      # exist, fall back to creating a brand-new default session.
       def create_default_session
         return unless @agent_config.models_configured?
 
         working_dir = default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
-        build_session(name: "Session 1", working_dir: working_dir)
+
+        # Try to restore the most recent session for this working directory
+        session_data = @session_manager.latest_for_directory(working_dir)
+
+        if session_data
+          build_session_from_data(session_data)
+        else
+          build_session(name: "Session 1", working_dir: working_dir)
+        end
       end
 
       # ── Onboard API ───────────────────────────────────────────────────────────
@@ -934,18 +948,17 @@ module Clacky
           agent.run(content, images: images)
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
-
-          # Persist session
-          session_manager = Clacky::SessionManager.new
-          session_manager.save(agent.to_session_data(status: :success))
+          @session_manager.save(agent.to_session_data(status: :success))
         rescue Clacky::AgentInterrupted
           @registry.update(session_id, status: :idle)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "interrupted", session_id: session_id })
+          @session_manager.save(agent.to_session_data(status: :interrupted))
         rescue => e
           @registry.update(session_id, status: :error, error: e.message)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "error", session_id: session_id, message: e.message })
+          @session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
         end
         @registry.with_session(session_id) { |s| s[:thread] = thread }
       end
@@ -985,16 +998,19 @@ module Clacky
 
         thread = Thread.new do
           agent.run(prompt)
-          @registry.update(session_id, status: :idle)
+          @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
+          @session_manager.save(agent.to_session_data(status: :success))
         rescue Clacky::AgentInterrupted
           @registry.update(session_id, status: :idle)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "interrupted", session_id: session_id })
+          @session_manager.save(agent.to_session_data(status: :interrupted))
         rescue => e
           @registry.update(session_id, status: :error, error: e.message)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "error", session_id: session_id, message: e.message })
+          @session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
         end
         @registry.with_session(session_id) { |s| s[:thread] = thread }
       end
@@ -1063,6 +1079,34 @@ module Clacky
         config = @agent_config.dup
         config.permission_mode = permission_mode
         agent  = Clacky::Agent.new(client, config, working_dir: working_dir)
+
+        broadcaster = method(:broadcast)
+        ui = WebUIController.new(session_id, broadcaster)
+        agent.instance_variable_set(:@ui, ui)
+
+        @registry.with_session(session_id) do |s|
+          s[:agent] = agent
+          s[:ui]    = ui
+        end
+
+        session_id
+      end
+
+      # Restore a persisted session from saved session_data (from SessionManager).
+      # The agent keeps its original session_id so the frontend URL hash stays valid
+      # across server restarts.
+      def build_session_from_data(session_data)
+        working_dir = session_data[:working_dir] || default_working_dir
+        name        = session_data[:name] || "Session #{Time.now.strftime('%H:%M')}"
+        original_id = session_data[:session_id]
+
+        # Register with the original session_id so frontend hashes stay valid
+        session_id = @registry.create(name: name, working_dir: working_dir,
+                                      session_id: original_id)
+
+        client = @client_factory.call
+        config = @agent_config.dup
+        agent  = Clacky::Agent.from_session(client, config, session_data)
 
         broadcaster = method(:broadcast)
         ui = WebUIController.new(session_id, broadcaster)
