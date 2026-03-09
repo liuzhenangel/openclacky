@@ -59,6 +59,17 @@ body {
 }
 .sidebar-divider span { white-space: nowrap; }
 
+/* ── Session empty placeholder ───────────────────────────────────────────── */
+.session-empty {
+  margin: 4px 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px dashed #30363d;
+  font-size: 12px;
+  color: #484f58;
+  text-align: center;
+}
+
 /* ── Session List ────────────────────────────────────────────────────────── */
 .session-item {
   position: relative;
