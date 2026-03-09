@@ -405,4 +405,69 @@ RSpec.describe "Brand Skill system" do
       expect(ctx).not_to include("BRAND SKILL PRIVACY RULES")
     end
   end
+
+  describe "build_skill_context MAX_CONTEXT_SKILLS limit" do
+    # Build a plain skill double with a given identifier
+    def make_plain_skill(id)
+      double(
+        "skill_#{id}",
+        identifier: id,
+        context_description: "Description for #{id}",
+        model_invocation_allowed?: true,
+        encrypted?: false
+      )
+    end
+
+    it "has MAX_CONTEXT_SKILLS constant set to 30" do
+      expect(Clacky::Agent::SkillManager::MAX_CONTEXT_SKILLS).to eq(30)
+    end
+
+    it "truncates skills injected into system prompt when count exceeds MAX_CONTEXT_SKILLS" do
+      stub_const("Clacky::Agent::SkillManager::MAX_CONTEXT_SKILLS", 3)
+
+      # 5 auto-invocable plain skills
+      many_skills = (1..5).map { |i| make_plain_skill("skill-#{i}") }
+
+      loader = double("skill_loader")
+      allow(loader).to receive(:load_all).and_return(many_skills)
+
+      warn_messages = []
+      allow(Clacky::Logger).to receive(:warn) { |msg, **| warn_messages << msg }
+
+      obj = Object.new
+      obj.instance_variable_set(:@skill_loader, loader)
+      obj.extend(Clacky::Agent::SkillManager)
+
+      ctx = obj.build_skill_context
+
+      # Only first 3 skills should appear in context
+      expect(ctx).to include("skill-1")
+      expect(ctx).to include("skill-2")
+      expect(ctx).to include("skill-3")
+      expect(ctx).not_to include("skill-4")
+      expect(ctx).not_to include("skill-5")
+
+      # A warning must be logged via Clacky::Logger
+      expect(warn_messages).to include(a_string_matching(/Skill context limit/))
+      expect(warn_messages).to include(a_string_matching(/2 dropped/))
+    end
+
+    it "does not truncate or warn when skills are within MAX_CONTEXT_SKILLS limit" do
+      stub_const("Clacky::Agent::SkillManager::MAX_CONTEXT_SKILLS", 5)
+
+      skills = (1..3).map { |i| make_plain_skill("skill-#{i}") }
+
+      loader = double("skill_loader")
+      allow(loader).to receive(:load_all).and_return(skills)
+
+      expect(Clacky::Logger).not_to receive(:warn)
+
+      obj = Object.new
+      obj.instance_variable_set(:@skill_loader, loader)
+      obj.extend(Clacky::Agent::SkillManager)
+
+      ctx = obj.build_skill_context
+      (1..3).each { |i| expect(ctx).to include("skill-#{i}") }
+    end
+  end
 end

@@ -64,6 +64,10 @@ module Clacky
         expanded_content
       end
 
+      # Maximum number of skills injected into the system prompt.
+      # Keeps context tokens bounded regardless of how many skills are installed.
+      MAX_CONTEXT_SKILLS = 30
+
       # Generate skill context - loads all auto-invocable skills allowed by the agent profile
       # @return [String] Skill context to add to system prompt
       def build_skill_context
@@ -71,6 +75,17 @@ module Clacky
         all_skills = @skill_loader.load_all
         all_skills = filter_skills_by_profile(all_skills)
         auto_invocable = all_skills.select(&:model_invocation_allowed?)
+
+        # Enforce system prompt injection limit to control token usage
+        if auto_invocable.size > MAX_CONTEXT_SKILLS
+          dropped = auto_invocable.size - MAX_CONTEXT_SKILLS
+          Clacky::Logger.warn(
+            "Skill context limit: #{auto_invocable.size} auto-invocable skills found, " \
+            "only injecting first #{MAX_CONTEXT_SKILLS} (#{dropped} dropped). " \
+            "Remove unused skills to restore full visibility."
+          )
+          auto_invocable = auto_invocable.first(MAX_CONTEXT_SKILLS)
+        end
 
         return "" if auto_invocable.empty?
 

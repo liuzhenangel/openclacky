@@ -18,6 +18,11 @@ module Clacky
       :brand               # ~/.clacky/brand_skills/ (encrypted, license-gated)
     ].freeze
 
+    # Maximum number of skills that can be loaded in total.
+    # When exceeded, a warning is recorded in @errors and extra skills are dropped.
+    # This prevents runaway memory usage and excessively long system prompts.
+    MAX_SKILLS = 50
+
     # Initialize the skill loader and automatically load all skills
     # @param working_dir [String] Current working directory for project-level discovery
     # @param brand_config [Clacky::BrandConfig, nil] Optional brand config used to
@@ -334,6 +339,14 @@ module Clacky
         end
       end
 
+      # Enforce skill count limit
+      if @skills.size >= MAX_SKILLS
+        msg = "Skill limit reached (max #{MAX_SKILLS}): skipping brand skill '#{skill.identifier}' from #{skill_dir}"
+        @errors << msg
+        Clacky::Logger.warn(msg)
+        return nil
+      end
+
       @skills[skill.identifier]          = skill
       @skills_by_command[skill.slash_command] = skill
       @loaded_from[skill.identifier]     = :brand
@@ -366,6 +379,14 @@ module Clacky
           @errors << "Skipping duplicate skill '#{skill.identifier}' at #{skill_dir}"
           return nil
         end
+      end
+
+      # Enforce skill count limit
+      if @skills.size >= MAX_SKILLS
+        msg = "Skill limit reached (max #{MAX_SKILLS}): skipping '#{skill.identifier}' from #{skill_dir}"
+        @errors << msg
+        Clacky::Logger.warn(msg)
+        return nil
       end
 
       # Register skill
