@@ -459,6 +459,8 @@ module Clacky
         else
           json_response(res, 422, { ok: false, error: result[:error] })
         end
+      rescue StandardError, ScriptError => e
+        json_response(res, 500, { ok: false, error: e.message })
       end
 
       # GET /api/brand
