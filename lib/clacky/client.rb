@@ -573,6 +573,7 @@ module Clacky
         conn.headers["Authorization"] = "Bearer #{@api_key}"
         conn.options.timeout = 120
         conn.options.open_timeout = 10
+        conn.ssl.verify = false
         conn.adapter Faraday.default_adapter
       end
     end
@@ -586,6 +587,7 @@ module Clacky
         conn.headers["anthropic-dangerous-direct-browser-access"] = "true"
         conn.options.timeout = 120
         conn.options.open_timeout = 10
+        conn.ssl.verify = false
         conn.adapter Faraday.default_adapter
       end
     end
