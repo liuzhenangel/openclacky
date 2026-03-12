@@ -1,44 +1,60 @@
 ---
 name: skill-add
-description: Install skills from GitHub. Use when user provides a GitHub URL to install a skill or skill collection. Trigger on phrases like "install skill from github", "add skill from repo", "/skill-add https://github.com/..."
+description: 'Install skills from a zip URL. Use this skill whenever the user wants to install a skill from a zip link, or uses commands like /skill-add with a URL. Trigger on phrases like: install skill, install from zip, skill from zip, skill from url, add skill from zip, 安装skill, 从zip安装skill.'
 disable-model-invocation: false
 user-invocable: true
 ---
 
-# Skill Add — Install Skills from GitHub
+# Skill Add — Zip Installer
 
-Install skills from a GitHub repository into `~/.clacky/skills/`.
+Installs a skill from a zip URL using the bundled `install_from_zip.rb` script.
 
-## Supported URL Formats
+## Finding the Script
 
-```
-# Install all skills found in the repo's skills/ directories
-https://github.com/user/repo
+The script lives inside this skill's directory, in one of two locations:
+- Global: `~/.clacky/skills/skill-add/scripts/`
+- Project-level: `.clacky/skills/skill-add/scripts/`
 
-# Install all skills under a specific subdirectory
-https://github.com/user/repo/skills
-
-# Install a single specific skill by subpath
-https://github.com/user/repo/skills/my-skill
+Locate it at runtime with:
+```bash
+ruby "$(find ~/.clacky/skills/skill-add .clacky/skills/skill-add -name 'install_from_zip.rb' 2>/dev/null | head -1)" <zip_url> <slug>
 ```
 
-## How to Run
+---
 
-Execute the installer script via shell:
+## How to Install
+
+When the user provides a `.zip` URL, run:
 
 ```bash
-ruby lib/clacky/default_skills/skill-add/scripts/install_from_github.rb <github_url>
+ruby "$(find ~/.clacky/skills/skill-add .clacky/skills/skill-add -name 'install_from_zip.rb' 2>/dev/null | head -1)" <zip_url> <slug>
 ```
 
-The script will:
-1. Clone the repo (shallow, depth=1)
-2. Locate the skill(s) based on the URL (whole repo scan, or specific subpath)
-3. Copy each skill to `~/.clacky/skills/<skill-name>/`
-4. Report what was installed
+- `<zip_url>` — the download URL provided by the user
+- `<slug>` — the skill's directory name; if not provided, infer it from the URL filename by stripping version suffixes (e.g. `canvas-design-1.2.0.zip` → `canvas-design`)
 
-After installation, the skill is immediately available as `/skill-name` in all sessions.
+The script handles everything automatically:
+- Downloads the zip (follows HTTP redirects)
+- Extracts and locates all `SKILL.md` files inside
+- Copies skill directories to `.clacky/skills/` in the current project (overwrites existing)
+- Reports installed skills with their descriptions
+
+**Do NOT manually download or unzip — the script handles everything.**
+
+## Example
+
+```
+/skill-add https://store.clacky.ai/skills/canvas-design-1.2.0.zip
+```
+
+```bash
+ruby "$(find ~/.clacky/skills/skill-add .clacky/skills/skill-add -name 'install_from_zip.rb' 2>/dev/null | head -1)" \
+  "https://store.clacky.ai/skills/canvas-design-1.2.0.zip" \
+  "canvas-design"
+```
 
 ## Notes
 
-- If a skill with the same name already exists, it is skipped (not overwritten)
-- For creating new skills from scratch, use the `skill-creator` skill instead
+- Skills install to `.clacky/skills/` in the current project
+- Project-level skills override global skills (`~/.clacky/skills/`)
+- If the user doesn't provide a URL, ask them for the zip URL — this skill only supports zip installs

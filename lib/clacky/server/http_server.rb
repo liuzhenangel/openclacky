@@ -6,6 +6,7 @@ require "json"
 require "thread"
 require "fileutils"
 require "uri"
+require "open3"
 require_relative "session_registry"
 require_relative "web_ui_controller"
 require_relative "scheduler"
@@ -452,6 +453,7 @@ module Clacky
         end
       end
 
+      # POST /api/store/skills/:slug/install
       def api_brand_skills(res)
         brand = Clacky::BrandConfig.load
 
