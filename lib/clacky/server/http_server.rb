@@ -120,7 +120,8 @@ module Clacky
         # Enable console logging for the server process so log lines are visible in the terminal.
         Clacky::Logger.console = true
 
-        # Write PID file so the next invocation can stop this process automatically
+        # Kill any previous server on the same port, then write our own PID file
+        kill_existing_server(@port)
         pid_file = "/tmp/clacky-server-#{@port}.pid"
         File.write(pid_file, Process.pid.to_s)
         at_exit { File.delete(pid_file) if File.exist?(pid_file) }
@@ -1505,6 +1506,28 @@ module Clacky
       def not_found(res)
         res.status = 404
         res.body   = "Not Found"
+      end
+
+      # Stop any previously running server on the given port via its PID file.
+      private def kill_existing_server(port)
+        pid_file = "/tmp/clacky-server-#{port}.pid"
+        return unless File.exist?(pid_file)
+
+        pid = File.read(pid_file).strip.to_i
+        return if pid <= 0
+
+        begin
+          Process.kill("TERM", pid)
+          puts "Stopped existing server (PID: #{pid}) on port #{port}."
+          # Give it a moment to release the port
+          sleep 0.5
+        rescue Errno::ESRCH
+          # Process already gone — nothing to do
+        rescue Errno::EPERM
+          puts "Could not stop existing server (PID: #{pid}) — permission denied."
+        ensure
+          File.delete(pid_file) if File.exist?(pid_file)
+        end
       end
 
       # ── Inner classes ─────────────────────────────────────────────────────────
