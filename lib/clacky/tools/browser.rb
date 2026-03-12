@@ -143,6 +143,8 @@ module Clacky
       end
 
       MAX_LLM_OUTPUT_CHARS = 6000
+      # Snapshot-specific limit: accessibility trees can be huge; compress aggressively
+      MAX_SNAPSHOT_CHARS = 4000
 
       def format_result_for_llm(result)
         return result if result[:error]
@@ -157,7 +159,15 @@ module Clacky
           exit_code: result[:exit_code]
         }
 
-        stdout_info = truncate_and_save(stdout, MAX_LLM_OUTPUT_CHARS, "stdout", command_name)
+        # Apply snapshot-specific compression before generic truncation
+        if snapshot_command?(result[:command])
+          stdout = compress_snapshot(stdout)
+          max_chars = MAX_SNAPSHOT_CHARS
+        else
+          max_chars = MAX_LLM_OUTPUT_CHARS
+        end
+
+        stdout_info = truncate_and_save(stdout, max_chars, "stdout", command_name)
         compact[:stdout] = stdout_info[:content]
         compact[:stdout_full] = stdout_info[:temp_file] if stdout_info[:temp_file]
 
@@ -169,6 +179,48 @@ module Clacky
       end
 
       private
+
+      # Returns true if this browser command is a snapshot (accessibility tree dump)
+      def snapshot_command?(command)
+        return false unless command.is_a?(String)
+        cmd = command.strip.downcase
+        cmd == "snapshot" || cmd.start_with?("snapshot ")
+      end
+
+      # Strip noise from snapshot output to reduce token usage.
+      #
+      # What we remove (safe, LLM doesn't need them to interact):
+      #   - "- /url: ..." lines  — LLM uses [ref=eN] to click/fill, not URLs
+      #   - "- /placeholder: ..." lines — already shown inline in textbox label
+      #   - "- img" lines with no alt text — zero information
+      #
+      # What we keep intact:
+      #   - All [ref=eN] anchors (essential for click/fill commands)
+      #   - All visible text and headings
+      #   - All interactive elements (button, textbox, link, select, etc.)
+      #   - img lines that do have alt text
+      def compress_snapshot(output)
+        return output if output.empty?
+
+        lines = output.lines
+        original_size = lines.size
+
+        compressed = lines.reject do |line|
+          stripped = line.strip
+          stripped.start_with?("- /url:", "/url:") ||
+            stripped.start_with?("- /placeholder:", "/placeholder:") ||
+            stripped == "- img" ||
+            stripped.match?(/\A-\s+img\s*\z/)
+        end
+
+        # If we removed a meaningful number of lines, append a note
+        removed = original_size - compressed.size
+        if removed > 0
+          compressed << "\n[snapshot compressed: #{removed} /url, /placeholder, empty-img lines removed]\n"
+        end
+
+        compressed.join
+      end
 
       def build_command(command, session, auto_connect: false, session_name: nil, headed: false)
         parts = [AGENT_BROWSER_BIN]
