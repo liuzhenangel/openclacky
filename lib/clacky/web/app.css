@@ -2344,6 +2344,77 @@ body {
   background: var(--color-border-primary);
 }
 
+/* ── Language selection phase ── */
+#onboard-phase-lang {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.onboard-lang-prompt {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.onboard-lang-btns {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.onboard-lang-btn {
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border-primary);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 32px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+
+.onboard-lang-btn:hover {
+  border-color: var(--color-accent-primary);
+}
+
+.onboard-lang-btn.active {
+  background: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  color: #fff;
+}
+
+/* ── Settings language buttons ── */
+.settings-lang-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-lang-btn {
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border-primary);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 18px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+
+.settings-lang-btn:hover {
+  border-color: var(--color-accent-primary);
+}
+
+.settings-lang-btn.active {
+  background: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  color: #fff;
+}
+
 /* ── Phase containers ── */
 #onboard-phase-key,
 #onboard-phase-soul {
