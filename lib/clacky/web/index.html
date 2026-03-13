@@ -6,6 +6,14 @@
   <title id="page-title">{{BRAND_NAME}}</title>
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="stylesheet" href="/app.css">
+  <script>
+    // Inline theme init — must run before CSS renders to prevent flash of wrong theme.
+    (function() {
+      var saved = localStorage.getItem("clacky-theme");
+      var theme = saved || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
 </head>
 <body>
 <div id="app">
