@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" id="html-root">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -40,7 +40,7 @@
       <!-- Chat Group -->
       <div id="chat-section">
         <div class="sidebar-divider">
-          <span>Chat</span>
+          <span data-i18n="sidebar.chat">Chat</span>
           <button id="btn-new-session-inline" class="btn-new-inline" title="New Session">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
               <path d="M5 12h14"/>
@@ -53,7 +53,7 @@
       
       <!-- Config Group -->
       <div id="config-section">
-        <div class="sidebar-divider"><span>Config</span></div>
+        <div class="sidebar-divider"><span data-i18n="sidebar.config">Config</span></div>
         <div id="config-nav-items">
           <div id="tasks-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
@@ -62,7 +62,7 @@
                 <polyline points="12 6 12 12 16 14"/>
               </svg>
               <div class="task-info">
-                <span class="task-name" id="tasks-sidebar-label">Tasks</span>
+                <span class="task-name" id="tasks-sidebar-label" data-i18n="sidebar.tasks">Tasks</span>
               </div>
             </div>
           </div>
@@ -72,7 +72,7 @@
                 <path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/>
               </svg>
               <div class="task-info">
-                <span class="task-name" id="skills-sidebar-label">Skills</span>
+                <span class="task-name" id="skills-sidebar-label" data-i18n="sidebar.skills">Skills</span>
               </div>
             </div>
           </div>
@@ -83,7 +83,7 @@
                 <path d="M12 18h.01"/>
               </svg>
               <div class="task-info">
-                <span class="task-name" id="channels-sidebar-label">Channels</span>
+                <span class="task-name" id="channels-sidebar-label" data-i18n="sidebar.channels">Channels</span>
               </div>
             </div>
           </div>
@@ -98,7 +98,7 @@
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-        <span>Settings</span>
+        <span data-i18n="sidebar.settings">Settings</span>
       </button>
     </div>
   </aside>
@@ -110,23 +110,35 @@
     <div id="onboard-panel" style="display:none">
       <div id="onboard-inner">
         <div class="onboard-logo"></div>
-        <h1 class="onboard-title" id="onboard-title">Welcome to {{BRAND_NAME}}</h1>
-        <p class="onboard-subtitle" id="onboard-subtitle">Let's get you set up in a minute.</p>
+        <h1 class="onboard-title" id="onboard-title" data-i18n="onboard.title" data-i18n-vars="brand={{BRAND_NAME}}">Welcome to {{BRAND_NAME}}</h1>
+        <p class="onboard-subtitle" id="onboard-subtitle" data-i18n="onboard.subtitle">Let's get you set up in a minute.</p>
+
+        <!-- Phase 0: Language selection -->
+        <div id="onboard-phase-lang">
+          <p class="onboard-phase-title" data-i18n="onboard.lang.prompt">Choose your language</p>
+          <div class="onboard-lang-btns">
+            <button id="onboard-btn-lang-en" class="onboard-lang-btn active">English</button>
+            <button id="onboard-btn-lang-zh" class="onboard-lang-btn">中文</button>
+          </div>
+          <div class="onboard-actions">
+            <button id="onboard-btn-lang-next" class="onboard-btn-primary" data-i18n="onboard.key.btn.test" style="margin-top:8px">Continue →</button>
+          </div>
+        </div>
 
         <!-- Step indicators -->
-        <div id="onboard-steps">
+        <div id="onboard-steps" style="display:none">
           <div class="onboard-step active" id="step-dot-1">1</div>
           <div class="onboard-step-line"></div>
           <div class="onboard-step" id="step-dot-2">2</div>
         </div>
 
         <!-- Phase 1: Key setup -->
-        <div id="onboard-phase-key">
-          <p class="onboard-phase-title">Connect your AI model</p>
+        <div id="onboard-phase-key" style="display:none">
+          <p class="onboard-phase-title" data-i18n="onboard.key.title">Connect your AI model</p>
 
           <!-- Provider quick-select -->
           <div class="onboard-field">
-            <label class="onboard-label">Provider</label>
+            <label class="onboard-label" data-i18n="onboard.key.provider">Provider</label>
             <div class="custom-select-wrapper" id="onboard-provider-wrapper">
               <div class="custom-select-trigger">
                 <span class="custom-select-value placeholder">— Choose provider —</span>
@@ -140,17 +152,17 @@
             </div>
           </div>
           <div class="onboard-field">
-            <label class="onboard-label">Model</label>
-            <input id="onboard-model" type="text" class="onboard-input" placeholder="e.g. claude-sonnet-4-5">
+            <label class="onboard-label" data-i18n="onboard.key.model">Model</label>
+            <input id="onboard-model" type="text" class="onboard-input" data-i18n-placeholder="settings.models.placeholder.model" placeholder="e.g. claude-sonnet-4-5">
           </div>
           <div class="onboard-field">
-            <label class="onboard-label">Base URL</label>
-            <input id="onboard-base-url" type="text" class="onboard-input" placeholder="https://api.anthropic.com">
+            <label class="onboard-label" data-i18n="onboard.key.baseurl">Base URL</label>
+            <input id="onboard-base-url" type="text" class="onboard-input" data-i18n-placeholder="settings.models.placeholder.baseurl" placeholder="https://api.anthropic.com">
           </div>
           <div class="onboard-field">
-            <label class="onboard-label">API Key</label>
+            <label class="onboard-label" data-i18n="onboard.key.apikey">API Key</label>
             <div class="onboard-input-row">
-              <input id="onboard-api-key" type="password" class="onboard-input" placeholder="sk-…">
+              <input id="onboard-api-key" type="password" class="onboard-input" data-i18n-placeholder="settings.models.placeholder.apikey" placeholder="sk-…">
               <button id="onboard-toggle-key" class="btn-toggle-key" title="Show/hide">
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -163,19 +175,19 @@
           <div id="onboard-test-result" class="onboard-test-result"></div>
 
           <div class="onboard-actions">
-            <button id="onboard-btn-test" class="onboard-btn-primary">Test & Continue →</button>
+            <button id="onboard-btn-test" class="onboard-btn-primary" data-i18n="onboard.key.btn.test">Test & Continue →</button>
           </div>
         </div>
 
         <!-- Phase 2: Soul setup -->
         <div id="onboard-phase-soul" style="display:none">
-          <p class="onboard-phase-title">Personalize your assistant</p>
-          <p class="onboard-phase-desc">
+          <p class="onboard-phase-title" data-i18n="onboard.soul.title">Personalize your assistant</p>
+          <p class="onboard-phase-desc" data-i18n="onboard.soul.desc">
             Takes about 30 seconds. You'll be asked two quick questions via interactive cards.
           </p>
           <div class="onboard-actions onboard-actions-split">
-            <button id="onboard-btn-start-soul" class="onboard-btn-primary">Let's go →</button>
-            <button id="onboard-btn-skip" class="onboard-btn-secondary">Skip for now</button>
+            <button id="onboard-btn-start-soul" class="onboard-btn-primary" data-i18n="onboard.soul.btn.start">Let's go →</button>
+            <button id="onboard-btn-skip" class="onboard-btn-secondary" data-i18n="onboard.soul.btn.skip">Skip for now</button>
           </div>
         </div>
       </div>
@@ -184,11 +196,11 @@
     <!-- Brand activation panel (shown when branded but not yet activated) -->
     <div id="brand-panel" style="display:none">
       <div id="brand-inner">
-        <h1 class="onboard-title" id="brand-title">Activate Your License</h1>
-        <p class="onboard-subtitle" id="brand-subtitle">Enter your license key to get started.</p>
+        <h1 class="onboard-title" id="brand-title" data-i18n="brand.title">Activate Your License</h1>
+        <p class="onboard-subtitle" id="brand-subtitle" data-i18n="brand.subtitle">Enter your license key to get started.</p>
 
         <div class="onboard-field">
-          <label class="onboard-label">License Key</label>
+          <label class="onboard-label" data-i18n="brand.key.label">License Key</label>
           <input id="brand-license-key" type="text" class="onboard-input"
                  placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
                  autocomplete="off" spellcheck="false">
@@ -197,8 +209,8 @@
         <div id="brand-activate-result" class="onboard-test-result"></div>
 
         <div class="onboard-actions onboard-actions-split">
-          <button id="brand-btn-activate" class="onboard-btn-primary">Activate</button>
-          <button id="brand-btn-skip" class="onboard-btn-secondary">Skip for now</button>
+          <button id="brand-btn-activate" class="onboard-btn-primary" data-i18n="brand.btn.activate">Activate</button>
+          <button id="brand-btn-skip" class="onboard-btn-secondary" data-i18n="brand.btn.skip">Skip for now</button>
         </div>
       </div>
     </div>
@@ -206,9 +218,9 @@
     <!-- Welcome screen -->
     <div id="welcome" class="centered">
       <div class="welcome-icon" style="display:none"></div>
-      <h2 id="welcome-title">Welcome to {{BRAND_NAME}}</h2>
-      <p>Create a new session or select one from the sidebar.</p>
-      <button id="btn-welcome-new">New Session</button>
+      <h2 id="welcome-title" data-i18n="welcome.title" data-i18n-vars="brand={{BRAND_NAME}}">Welcome to {{BRAND_NAME}}</h2>
+      <p data-i18n="welcome.body">Create a new session or select one from the sidebar.</p>
+      <button id="btn-welcome-new" data-i18n="welcome.btn">New Session</button>
     </div>
 
     <!-- Scheduled Tasks list panel (shown when user clicks "Scheduled Tasks") -->
@@ -216,14 +228,14 @@
       <div id="task-detail-body">
         <!-- Title and Description -->
         <div class="task-page-header">
-          <h2 class="task-page-title">Scheduled Tasks</h2>
-          <p class="task-page-subtitle">Manage and schedule automated tasks for your assistant</p>
+          <h2 class="task-page-title" data-i18n="tasks.title">Scheduled Tasks</h2>
+          <p class="task-page-subtitle" data-i18n="tasks.subtitle">Manage and schedule automated tasks for your assistant</p>
           <button id="btn-create-task" class="btn-create-task" title="Create a new task">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
               <path d="M5 12h14"/>
               <path d="M12 5v14"/>
             </svg>
-            <span>Create Task</span>
+            <span data-i18n="tasks.btn.create">Create Task</span>
           </button>
         </div>
         
@@ -262,8 +274,9 @@
             <span>/</span>
           </button>
           <textarea id="user-input" rows="1"
+            data-i18n-placeholder="chat.input.placeholder"
             placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
-          <button id="btn-send">Send</button>
+          <button id="btn-send" data-i18n="chat.btn.send">Send</button>
           <button id="btn-interrupt" style="display:none" title="Stop">■</button>
         </div>
       </div>
@@ -274,22 +287,22 @@
       <div id="skills-body">
         <!-- Title and Description -->
         <div class="skills-page-header">
-          <h2 class="skills-page-title">Skills</h2>
-          <p class="skills-page-subtitle">Extend your assistant's capabilities with custom skills</p>
+          <h2 class="skills-page-title" data-i18n="skills.title">Skills</h2>
+          <p class="skills-page-subtitle" data-i18n="skills.subtitle">Extend your assistant's capabilities with custom skills</p>
           <button id="btn-create-skill" class="btn-create-skill" title="Create a new skill">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
               <path d="M5 12h14"/>
               <path d="M12 5v14"/>
             </svg>
-            <span>New Skill</span>
+            <span data-i18n="skills.btn.new">New Skill</span>
           </button>
         </div>
 
         <!-- Tab bar -->
         <div id="skills-tabs">
-          <button class="skills-tab active" data-tab="my-skills" id="tab-my-skills">My Skills</button>
-          <button class="skills-tab" data-tab="brand-skills" id="tab-brand-skills">Brand Skills</button>
-          <button class="skills-tab" data-tab="store" id="tab-store">Public Store</button>
+          <button class="skills-tab active" data-tab="my-skills" id="tab-my-skills" data-i18n="skills.tab.my">My Skills</button>
+          <button class="skills-tab" data-tab="brand-skills" id="tab-brand-skills" data-i18n="skills.tab.brand">Brand Skills</button>
+          <button class="skills-tab" data-tab="store" id="tab-store" data-i18n="skills.tab.store">Public Store</button>
         </div>
 
         <!-- Tab: My Skills -->
@@ -306,7 +319,7 @@
                 <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
                 <path d="M3 22v-6h6"/>
                 <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
-              </svg> Refresh
+              </svg> <span data-i18n="skills.btn.refresh">Refresh</span>
             </button>
           </div>
           <div id="brand-skills-warning" class="brand-skills-warning" style="display:none"></div>
@@ -324,8 +337,8 @@
     <div id="channels-panel" style="display:none">
       <div id="channels-body">
         <div class="channels-page-header">
-          <h2 class="channels-page-title">Channels</h2>
-          <p class="channels-page-subtitle">Connect IM platforms so your users can chat with the assistant via Feishu or WeCom</p>
+          <h2 class="channels-page-title" data-i18n="channels.title">Channels</h2>
+          <p class="channels-page-subtitle" data-i18n="channels.subtitle">Connect IM platforms so your users can chat with the assistant via Feishu or WeCom</p>
         </div>
 
         <div id="channels-list"></div>
@@ -335,15 +348,15 @@
     <!-- ── SETTINGS PANEL ──────────────────────────────────────────────── -->
     <div id="settings-panel" style="display:none">
       <header id="settings-header">
-        <span>Settings</span>
+        <span data-i18n="settings.title">Settings</span>
       </header>
       <div id="settings-body">
 
         <!-- Models section -->
         <section class="settings-section">
           <div class="settings-section-title">
-            <span>AI Models</span>
-            <button id="btn-add-model" class="btn-settings-add">+ Add Model</button>
+            <span data-i18n="settings.models.title">AI Models</span>
+            <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
           </div>
           <div id="model-cards"></div>
         </section>
@@ -351,49 +364,60 @@
         <!-- Personalize section -->
         <section class="settings-section">
           <div class="settings-section-title">
-            <span>Personalize</span>
+            <span data-i18n="settings.personalize.title">Personalize</span>
           </div>
           <div class="settings-personalize">
-            <p class="settings-personalize-desc">Re-run the onboarding to update your assistant's personality and user profile (SOUL.md &amp; USER.md).</p>
-            <button id="btn-rerun-onboard" class="btn-settings-action">✨ Re-run Onboard</button>
+            <p class="settings-personalize-desc" data-i18n="settings.personalize.desc">Re-run the onboarding to update your assistant's personality and user profile (SOUL.md &amp; USER.md).</p>
+            <button id="btn-rerun-onboard" class="btn-settings-action" data-i18n="settings.personalize.btn">✨ Re-run Onboard</button>
+          </div>
+        </section>
+
+        <!-- Language section -->
+        <section class="settings-section" id="language-section">
+          <div class="settings-section-title">
+            <span data-i18n="settings.lang.title">Language</span>
+          </div>
+          <div class="settings-lang-btns">
+            <button id="settings-btn-lang-en" class="settings-lang-btn" data-lang="en" data-i18n="settings.lang.en">English</button>
+            <button id="settings-btn-lang-zh" class="settings-lang-btn" data-lang="zh" data-i18n="settings.lang.zh">中文</button>
           </div>
         </section>
 
         <!-- Brand & License section -->
         <section class="settings-section" id="brand-license-section">
           <div class="settings-section-title">
-            <span>Brand &amp; License</span>
+            <span data-i18n="settings.brand.title">Brand &amp; License</span>
           </div>
 
           <!-- Current brand status (shown when already activated) -->
           <div id="brand-status-card" class="brand-status-card" style="display:none">
             <div class="brand-status-row">
-              <span class="brand-status-label">Brand</span>
+              <span class="brand-status-label" data-i18n="settings.brand.label.brand">Brand</span>
               <span class="brand-status-value" id="brand-status-name">—</span>
             </div>
             <div class="brand-status-row">
-              <span class="brand-status-label">Status</span>
+              <span class="brand-status-label" data-i18n="settings.brand.label.status">Status</span>
               <span class="brand-status-value" id="brand-status-badge">—</span>
             </div>
             <div class="brand-status-row">
-              <span class="brand-status-label">Expires</span>
+              <span class="brand-status-label" data-i18n="settings.brand.label.expires">Expires</span>
               <span class="brand-status-value" id="brand-status-expires">—</span>
             </div>
             <div class="brand-status-actions">
-              <button id="btn-rebind-license" class="btn-settings-action">Change License Key</button>
+              <button id="btn-rebind-license" class="btn-settings-action" data-i18n="settings.brand.btn.change">Change License Key</button>
             </div>
           </div>
 
           <!-- Activation form (shown when not yet activated) -->
           <div id="brand-activate-form" class="brand-activate-form">
-            <p class="brand-activate-desc">
+            <p class="brand-activate-desc" data-i18n="settings.brand.desc">
               Have a license key from a brand partner? Enter it below to activate branded mode.
             </p>
             <div class="brand-activate-fields">
               <input id="settings-license-key" type="text" class="field-input"
                      placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
                      autocomplete="off" spellcheck="false">
-              <button id="btn-settings-activate" class="btn-primary">Activate</button>
+              <button id="btn-settings-activate" class="btn-primary" data-i18n="settings.brand.btn.activate">Activate</button>
             </div>
             <div id="settings-activate-result" class="model-test-result"></div>
           </div>
@@ -414,12 +438,13 @@
   <div class="modal-box sm">
     <div id="modal-message" style="font-size:14px;line-height:1.6;margin-bottom:20px;white-space:pre-wrap"></div>
     <div class="modal-actions">
-      <button id="modal-yes" class="btn-primary">Yes</button>
-      <button id="modal-no"  class="btn-secondary">No</button>
+      <button id="modal-yes" class="btn-primary" data-i18n="modal.yes">Yes</button>
+      <button id="modal-no"  class="btn-secondary" data-i18n="modal.no">No</button>
     </div>
   </div>
 </div>
 
+<script src="/i18n.js"></script>
 <script src="/theme.js"></script>
 <script src="/ws.js"></script>
 <script src="/sessions.js"></script>

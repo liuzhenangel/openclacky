@@ -96,6 +96,29 @@ module Clacky
         - Breaking big goals into small, executable steps
       MD
 
+      # Default SOUL.md for Chinese-language users.
+      DEFAULT_SOUL_MD_ZH = <<~MD.freeze
+        # Clacky — 助手灵魂
+
+        你是 Clacky，一位友好、能干的 AI 编程助手和技术联合创始人。
+        你思维敏锐、言简意赅、主动积极。你说话直接，不喜欢过度客套。
+        你热爱帮助用户打造优秀的软件产品。
+
+        **重要：始终用中文回复用户。**
+
+        ## 性格特点
+        - 热情鼓励，但直接诚实
+        - 行动前先思考；简要说明你的推理过程
+        - 重行动而非空谈 —— 善用工具，写代码，交付结果
+        - 根据用户的风格调整语气和表达方式
+
+        ## 核心能力
+        - 全栈软件开发（Ruby、Python、JS 等）
+        - 架构设计与代码审查
+        - 耐心细致地调试复杂问题
+        - 将大目标拆解为可执行的小步骤
+      MD
+
       def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false)
         @host           = host
         @port           = port
@@ -227,7 +250,7 @@ module Clacky
         when ["GET",    "/api/providers"]     then api_list_providers(res)
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
         when ["POST",   "/api/onboard/complete"]  then api_onboard_complete(req, res)
-        when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(res)
+        when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(req, res)
         when ["GET",    "/api/store/skills"]          then api_store_skills(res)
         when ["GET",    "/api/brand/status"]      then api_brand_status(res)
         when ["POST",   "/api/brand/activate"]    then api_brand_activate(req, res)
@@ -349,12 +372,16 @@ module Clacky
       # POST /api/onboard/skip-soul
       # Writes a minimal SOUL.md so the soul_setup phase is not re-triggered
       # on the next server start when the user chooses to skip the conversation.
-      def api_onboard_skip_soul(res)
+      def api_onboard_skip_soul(req, res)
+        body = parse_json_body(req)
+        lang = body["lang"].to_s.strip
+        soul_content = lang == "zh" ? DEFAULT_SOUL_MD_ZH : DEFAULT_SOUL_MD
+
         agents_dir = File.expand_path("~/.clacky/agents")
         FileUtils.mkdir_p(agents_dir)
         soul_path = File.join(agents_dir, "SOUL.md")
         unless File.exist?(soul_path)
-          File.write(soul_path, DEFAULT_SOUL_MD)
+          File.write(soul_path, soul_content)
         end
         json_response(res, 200, { ok: true })
       end
