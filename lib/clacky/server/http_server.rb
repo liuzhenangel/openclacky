@@ -1194,8 +1194,10 @@ module Clacky
         return json_response(res, 400, { error: "name is required" }) if new_name.empty?
         return json_response(res, 404, { error: "Session not found" }) unless @registry.exist?(session_id)
 
-        @registry.update(session_id, name: new_name)
-        @registry.with_session(session_id) { |s| s[:agent]&.rename(new_name) }
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        agent.rename(new_name)
+        @session_manager.save(agent.to_session_data)
         broadcast(session_id, { type: "session_renamed", session_id: session_id, name: new_name })
         json_response(res, 200, { ok: true, name: new_name })
       rescue => e
@@ -1351,7 +1353,6 @@ module Clacky
           auto_name = content.gsub(/\s+/, " ").strip[0, 30]
           auto_name += "…" if content.strip.length > 30
           agent.rename(auto_name)
-          @registry.update(session_id, name: auto_name)
           broadcast(session_id, { type: "session_renamed", session_id: session_id, name: auto_name })
         end
 
@@ -1488,7 +1489,7 @@ module Clacky
       #   :auto_approve (unattended — suppresses request_user_feedback waits)
       def build_session(name:, working_dir:, permission_mode: :confirm_all, profile: "general")
         session_id = Clacky::SessionManager.generate_id
-        @registry.create(name: name, working_dir: working_dir, session_id: session_id)
+        @registry.create(session_id: session_id)
 
         client = @client_factory.call
         config = @agent_config.deep_copy
@@ -1497,6 +1498,7 @@ module Clacky
         ui = WebUIController.new(session_id, broadcaster)
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id)
+        agent.rename(name) unless name.nil? || name.empty?
 
         @registry.with_session(session_id) do |s|
           s[:agent] = agent
@@ -1510,15 +1512,13 @@ module Clacky
       # The agent keeps its original session_id so the frontend URL hash stays valid
       # across server restarts.
       def build_session_from_data(session_data, permission_mode: :confirm_all)
-        working_dir = session_data[:working_dir] || default_working_dir
-        name        = session_data[:name] || ""
         original_id = session_data[:session_id]
 
         # Skip if this session is already registered (e.g., restored by a previous call)
         return nil if @registry.exist?(original_id)
 
         # Register with the original session_id so frontend hashes stay valid
-        @registry.create(name: name, working_dir: working_dir, session_id: original_id)
+        @registry.create(session_id: original_id)
 
         client = @client_factory.call
         config = @agent_config.deep_copy

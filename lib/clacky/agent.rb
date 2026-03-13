@@ -33,7 +33,8 @@ module Clacky
     include MemoryUpdater
 
     attr_reader :session_id, :name, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
-                :cache_stats, :cost_source, :ui, :skill_loader, :agent_profile
+                :cache_stats, :cost_source, :ui, :skill_loader, :agent_profile,
+                :status, :error, :updated_at
 
     def initialize(client, config, working_dir:, ui:, profile:, session_id:)
       @client = client  # Client for current model
@@ -217,7 +218,7 @@ module Clacky
           if response[:finish_reason] == "stop" || response[:tool_calls].nil? || response[:tool_calls].empty?
             # During memory update phase, show LLM response as info (not a chat bubble)
             if @memory_updating && response[:content] && !response[:content].empty?
-              @ui&.show_info("🧠 " + response[:content].strip)
+              @ui&.show_info(response[:content].strip)
             elsif response[:content] && !response[:content].empty?
               @ui&.show_assistant_message(response[:content])
             end
