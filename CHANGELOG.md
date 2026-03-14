@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-03-15
+
+### Fixed
+- **Version upgrade button now appears reliably**: the new version check now queries RubyGems directly instead of relying on local gem mirror sources (which often lag behind by hours or days), so the upgrade badge shows up promptly when a new version is available. Falls back to the local mirror if RubyGems is unreachable.
+- **Edit confirmation diff output restored**: the file diff was not displaying correctly when the input area paused during an edit confirmation prompt; this is now fixed.
+
 ## [0.9.1] - 2026-03-15
 
 ### Added
