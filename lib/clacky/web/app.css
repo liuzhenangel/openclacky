@@ -33,6 +33,7 @@
 
   --color-button-primary: #60a5fa;
   --color-button-primary-hover: #3d8bd8;
+  --color-button-primary-text: #ffffff;
 
   --color-info: #38bdf8;
   --color-secondary: #34d399;
@@ -77,6 +78,7 @@
 
   --color-button-primary: #3b82f6;
   --color-button-primary-hover: #2563eb;
+  --color-button-primary-text: #ffffff;
 
   --color-info: #38bdf8;
   --color-secondary: #10b981;
@@ -3061,34 +3063,43 @@ body {
   border-radius: 8px;
 }
 
-/* ── Version badge (sidebar-footer) ─────────────────────────────────────── */
-.version-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 15px;
-  cursor: default;
-  border-radius: 6px;
-  transition: background .15s;
-  margin-top: 2px;
+/* ── Version badge (inline in Settings row, right-aligned) ──────────────── */
+
+/* Settings button stretches to fill width; version badge pushes to the right */
+#btn-settings {
+  position: relative;
 }
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;        /* push to right inside flex btn-settings */
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: default;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+/* When actionable, clicking the badge opens the popover.
+   We intercept click on the badge span, stop propagation to avoid
+   opening the settings panel at the same time. */
 .version-badge.has-update,
 .version-badge.upgrade-done,
 .version-badge.is-upgrading { cursor: pointer; }
-.version-badge.has-update:hover,
-.version-badge.upgrade-done:hover,
-.version-badge.is-upgrading:hover { background: var(--color-bg-hover); }
 
 .version-text {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--color-text-muted);
   font-family: monospace;
   letter-spacing: 0.03em;
   transition: color .15s;
+  line-height: 1;
 }
-.version-badge.has-update:hover .version-text,
-.version-badge.upgrade-done:hover .version-text,
-.version-badge.is-upgrading:hover .version-text { color: var(--color-text-secondary); }
+/* Highlight version text when badge is actionable and btn is hovered */
+#btn-settings:hover .version-text { color: var(--color-text-tertiary); }
+.version-badge.has-update .version-text,
+.version-badge.upgrade-done .version-text { color: var(--color-accent-primary); }
 
 /* Amber pulsing dot — update available */
 .version-update-dot {
@@ -3117,7 +3128,21 @@ body {
 }
 @keyframes vbadge-spin { to { transform: rotate(360deg); } }
 
-/* Green check — upgrade done, waiting for restart */
+/* Orange bouncing dot — needs restart (upgrade done, waiting for restart) */
+.version-restart-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f97316;   /* orange-500 */
+  flex-shrink: 0;
+  animation: vbadge-bounce 1s ease-in-out infinite;
+}
+@keyframes vbadge-bounce {
+  0%, 100% { transform: translateY(0);    opacity: 1;   }
+  50%       { transform: translateY(-3px); opacity: 0.7; }
+}
+
+/* Green check — restarted successfully */
 .version-done-check {
   font-size: 10px;
   color: #22c55e;
@@ -3346,3 +3371,5 @@ body {
   margin: 0;
   line-height: 1.5;
 }
+
+
