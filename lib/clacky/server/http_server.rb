@@ -14,6 +14,7 @@ require_relative "web_ui_controller"
 require_relative "scheduler"
 require_relative "../brand_config"
 require_relative "channel"
+require_relative "../banner"
 
 module Clacky
   module Server
@@ -220,7 +221,11 @@ module Clacky
           end
         end
 
-        puts "🌐 Clacky Web UI running at http://#{@host}:#{@port}"
+        banner = Clacky::Banner.new
+        puts banner.colored_cli_logo
+        puts banner.colored_tagline
+        puts ""
+        puts "   Web UI: #{banner.highlight("http://#{@host}:#{@port}")}"
         puts "   Version: #{Clacky::VERSION}"
         puts "   Press Ctrl-C to stop."
 
@@ -229,7 +234,7 @@ module Clacky
 
         # Start the background scheduler
         @scheduler.start
-        puts "   ⏰ Scheduler started (#{@scheduler.schedules.size} schedule(s) loaded)"
+        puts "   Scheduler: #{@scheduler.schedules.size} task(s) loaded"
 
         # Start IM channel adapters (non-blocking — each platform runs in its own thread)
         @channel_manager.start
