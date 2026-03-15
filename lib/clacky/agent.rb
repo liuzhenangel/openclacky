@@ -671,16 +671,24 @@ module Clacky
     private def format_tool_calls_for_api(tool_calls)
       return nil unless tool_calls
 
-      tool_calls.map do |call|
+      valid = tool_calls.filter_map do |call|
+        func = call[:function] || call
+        name = func[:name] || call[:name]
+        arguments = func[:arguments] || call[:arguments]
+        # Skip malformed tool calls with nil name or arguments
+        next if name.nil? || arguments.nil?
+
         {
           id: call[:id],
           type: call[:type] || "function",
           function: {
-            name: call[:name],
-            arguments: call[:arguments]
+            name: name,
+            arguments: arguments
           }
         }
       end
+
+      valid.any? ? valid : nil
     end
 
     private def register_builtin_tools

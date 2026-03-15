@@ -153,112 +153,125 @@ module Clacky
         )
       end
 
-      # Get recent messages while preserving tool_calls/tool_results pairs
-      # This ensures assistant messages with tool_calls are kept together with ALL their tool results
+      # Get recent messages while preserving tool_calls/tool_results pairs.
+      # Handles both canonical format (role: "tool") and legacy Anthropic-native
+      # format (role: "user" with tool_result content blocks).
       # @param messages [Array] All messages
       # @param count [Integer] Target number of recent messages to keep
       # @return [Array] Recent messages with complete tool pairs
       def get_recent_messages_with_tool_pairs(messages, count)
-        # This method ensures that assistant messages with tool_calls are always kept together
-        # with ALL their corresponding tool_results, maintaining the correct order.
-        # This is critical for Bedrock Claude API which validates the tool_calls/tool_results pairing.
-
         return [] if messages.nil? || messages.empty?
 
-        # Track which messages to include
         messages_to_include = Set.new
-
-        # Start from the end and work backwards
         i = messages.size - 1
         messages_collected = 0
 
         while i >= 0 && messages_collected < count
           msg = messages[i]
 
-          # Skip if already marked for inclusion
           if messages_to_include.include?(i)
             i -= 1
             next
           end
 
-          # Mark this message for inclusion
           messages_to_include.add(i)
           messages_collected += 1
 
-          # If this is an assistant message with tool_calls, we MUST include ALL corresponding tool results
-          if msg[:role] == "assistant" && msg[:tool_calls]
-            tool_call_ids = msg[:tool_calls].map { |tc| tc[:id] }
-
-            # Find all tool results that belong to this assistant message
-            # They should be in the messages immediately following this assistant message
-            j = i + 1
-            while j < messages.size
-              next_msg = messages[j]
-
-              # If we find a tool result for one of our tool_calls, include it
-              if next_msg[:role] == "tool" && tool_call_ids.include?(next_msg[:tool_call_id])
-                messages_to_include.add(j)
-              elsif next_msg[:role] != "tool"
-                # Stop when we hit a non-tool message (start of next turn)
-                break
-              end
-
-              j += 1
-            end
+          # assistant with tool_calls → also pull in all following tool results
+          if msg[:role] == "assistant" && msg[:tool_calls]&.any?
+            pull_tool_results_after(messages, i, messages_to_include)
           end
 
-          # If this is a tool result, make sure its assistant message is also included
-          if msg[:role] == "tool"
-            # Find the corresponding assistant message
-            j = i - 1
-            while j >= 0
-              prev_msg = messages[j]
-              if prev_msg[:role] == "assistant" && prev_msg[:tool_calls]
-                # Check if this assistant has the matching tool_call
-                has_matching_call = prev_msg[:tool_calls].any? { |tc| tc[:id] == msg[:tool_call_id] }
-                if has_matching_call
-                  unless messages_to_include.include?(j)
-                    messages_to_include.add(j)
-                    messages_collected += 1
-                  end
-
-                  # Also include all other tool results for this assistant message
-                  tool_call_ids = prev_msg[:tool_calls].map { |tc| tc[:id] }
-                  k = j + 1
-                  while k < messages.size
-                    result_msg = messages[k]
-                    if result_msg[:role] == "tool" && tool_call_ids.include?(result_msg[:tool_call_id])
-                      messages_to_include.add(k)
-                    elsif result_msg[:role] != "tool"
-                      break
-                    end
-                    k += 1
-                  end
-
-                  break
-                end
-              end
-              j -= 1
+          # tool result (canonical or legacy Anthropic) → also pull in its assistant
+          if tool_result_message?(msg)
+            pull_assistant_before(messages, i, messages_to_include) do |added|
+              messages_collected += 1 if added
             end
           end
 
           i -= 1
         end
 
-        # Extract the messages in their original order
         recent_messages = messages_to_include.to_a.sort.map { |idx| messages[idx] }
 
         # Truncate large tool results to prevent token bloat
         recent_messages.map do |msg|
-          if msg[:role] == "tool" && msg[:content].is_a?(String) && msg[:content].length > 2000
-            msg.merge(content: msg[:content][0..2000] + "...\n[Content truncated - exceeded 2000 characters]")
-          else
-            msg
-          end
+          truncate_tool_result(msg)
         end
       end
 
       private
+
+      # Returns true if msg is a tool result, regardless of storage format.
+      # Canonical: role:"tool"  |  Legacy Anthropic-native: role:"user" + tool_result blocks
+      def tool_result_message?(msg)
+        MessageFormat::OpenAI.tool_result_message?(msg) ||
+          MessageFormat::Anthropic.tool_result_message?(msg)
+      end
+
+      # Returns the tool_call IDs referenced in a tool result message.
+      def tool_result_ids(msg)
+        if MessageFormat::OpenAI.tool_result_message?(msg)
+          MessageFormat::OpenAI.tool_call_ids(msg)
+        else
+          MessageFormat::Anthropic.tool_use_ids(msg)
+        end
+      end
+
+      # Returns true if msg is a tool result that matches any of the given call IDs.
+      def tool_result_for?(msg, call_ids)
+        tool_result_message?(msg) && (tool_result_ids(msg) & call_ids).any?
+      end
+
+      # Mark all tool results immediately following messages[assistant_idx].
+      # Stops at the first non-tool-result message.
+      def pull_tool_results_after(messages, assistant_idx, include_set)
+        call_ids = messages[assistant_idx][:tool_calls].map { |tc| tc[:id] }
+        j = assistant_idx + 1
+        while j < messages.size
+          nxt = messages[j]
+          if tool_result_for?(nxt, call_ids)
+            include_set.add(j)
+          elsif !tool_result_message?(nxt)
+            break
+          end
+          j += 1
+        end
+      end
+
+      # Walk backwards from tool_result_idx to find and mark its assistant message.
+      # Also marks all sibling tool results for that assistant.
+      # Yields true if the assistant was newly added (for caller to increment count).
+      def pull_assistant_before(messages, tool_result_idx, include_set)
+        result_ids = tool_result_ids(messages[tool_result_idx])
+
+        j = tool_result_idx - 1
+        while j >= 0
+          prev = messages[j]
+          if prev[:role] == "assistant" && prev[:tool_calls]&.any?
+            call_ids = prev[:tool_calls].map { |tc| tc[:id] }
+            if (call_ids & result_ids).any?
+              newly_added = include_set.add?(j)
+              yield newly_added
+
+              # Also pull all sibling tool results for this assistant
+              pull_tool_results_after(messages, j, include_set)
+              break
+            end
+          end
+          j -= 1
+        end
+      end
+
+      # Truncate oversized tool result content to avoid token bloat.
+      def truncate_tool_result(msg)
+        if MessageFormat::OpenAI.tool_result_message?(msg) &&
+            msg[:content].is_a?(String) && msg[:content].length > 2000
+          msg.merge(content: msg[:content][0..2000] + "...\n[Content truncated - exceeded 2000 characters]")
+        else
+          msg
+        end
+      end
 
       # Save the messages being compressed to a chunk MD file for future recall
       # File path: ~/.clacky/sessions/{datetime}-{short_id}-chunk-{n}.md

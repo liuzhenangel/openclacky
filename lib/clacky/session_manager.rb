@@ -31,8 +31,13 @@ module Clacky
 
       @last_saved_path = filepath
 
-      # Keep only the most recent 10 sessions
-      cleanup_by_count(keep: 10)
+      # Keep only the most recent 10 sessions (best-effort, never block save)
+      begin
+        cleanup_by_count(keep: 10)
+      rescue Exception # rubocop:disable Lint/RescueException
+        # Cleanup is non-critical; swallow all errors (including AgentInterrupted)
+        # so that the session file is always saved successfully
+      end
 
       filepath
     end

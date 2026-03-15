@@ -15,748 +15,240 @@ module Clacky
       @use_anthropic_format = anthropic_format
     end
 
-    # Check if using Anthropic API format
-    # Determined by the anthropic_format flag passed in constructor
-    # (based on config source: ANTHROPIC_* env vars = true, config file = false)
+    # Returns true when the client is talking directly to the Anthropic API
+    # (determined at construction time via the anthropic_format flag).
     def anthropic_format?(model = nil)
       @use_anthropic_format
     end
 
-    # Test API connection by sending a minimal request
-    # Returns { success: true } on success, { success: false, error: "message" } on failure
+    # ── Connection test ───────────────────────────────────────────────────────
+
+    # Test API connection by sending a minimal request.
+    # Returns { success: true } or { success: false, error: "..." }.
     def test_connection(model:)
-      if anthropic_format?(model)
-        response = anthropic_connection.post("v1/messages") do |req|
-          req.body = {
-            model: model,
-            max_tokens: 16,
-            messages: [
-              {
-                role: "user",
-                content: "hi"
-              }
-            ]
-          }.to_json
-        end
-        handle_test_response(response)
-      else
-        response = openai_connection.post("chat/completions") do |req|
-          req.body = {
-            model: model,
-            max_tokens: 16,
-            messages: [
-              {
-                role: "user",
-                content: "hi"
-              }
-            ]
-          }.to_json
-        end
-        handle_test_response(response)
-      end
+      minimal_body = { model: model, max_tokens: 16,
+                       messages: [{ role: "user", content: "hi" }] }.to_json
+
+      response = if anthropic_format?
+                   anthropic_connection.post("v1/messages") { |r| r.body = minimal_body }
+                 else
+                   openai_connection.post("chat/completions") { |r| r.body = minimal_body }
+                 end
+      handle_test_response(response)
     rescue Faraday::Error => e
-      # Network or connection errors
       { success: false, error: "Connection error: #{e.message}" }
     rescue => e
-      # Other errors
       { success: false, error: e.message }
     end
 
+    # ── Simple (non-agent) helpers ────────────────────────────────────────────
+
+    # Send a single string message and return the reply text.
     def send_message(content, model:, max_tokens:)
-      if anthropic_format?(model)
-        response = anthropic_connection.post("v1/messages") do |req|
-          req.body = {
-            model: model,
-            max_tokens: max_tokens,
-            messages: [
-              {
-                role: "user",
-                content: content
-              }
-            ]
-          }.to_json
-        end
-        handle_anthropic_simple_response(response)
-      else
-        response = openai_connection.post("chat/completions") do |req|
-          req.body = {
-            model: model,
-            max_tokens: max_tokens,
-            messages: [
-              {
-                role: "user",
-                content: content
-              }
-            ]
-          }.to_json
-        end
-        handle_response(response)
-      end
+      messages = [{ role: "user", content: content }]
+      send_messages(messages, model: model, max_tokens: max_tokens)
     end
 
+    # Send a messages array and return the reply text.
     def send_messages(messages, model:, max_tokens:)
-      if anthropic_format?(model)
-        # Convert to Anthropic format
-        body = build_anthropic_body(messages, model, [], max_tokens, false)
-        response = anthropic_connection.post("v1/messages") do |req|
-          req.body = body.to_json
-        end
-        handle_anthropic_simple_response(response)
+      if anthropic_format?
+        body     = MessageFormat::Anthropic.build_request_body(messages, model, [], max_tokens, false)
+        response = anthropic_connection.post("v1/messages") { |r| r.body = body.to_json }
+        parse_simple_anthropic_response(response)
       else
-        response = openai_connection.post("chat/completions") do |req|
-          req.body = {
-            model: model,
-            max_tokens: max_tokens,
-            messages: messages
-          }.to_json
-        end
-
-        handle_response(response)
+        body     = { model: model, max_tokens: max_tokens, messages: messages }
+        response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
+        parse_simple_openai_response(response)
       end
     end
 
-    # Send messages with function calling (tools) support
-    # Options:
-    #   - enable_caching: Enable prompt caching for system prompt and tools (default: false)
+    # ── Agent main path ───────────────────────────────────────────────────────
+
+    # Send messages with tool-calling support.
+    # Returns canonical response hash: { content:, tool_calls:, finish_reason:, usage: }
     def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false)
-      # Auto-detect API format based on model name and base_url
-      is_anthropic = anthropic_format?(model)
+      caching_enabled = enable_caching && supports_prompt_caching?(model)
+      cloned = deep_clone(messages)
 
-      # Deep clone messages to avoid modifying the original array
-      processed_messages = messages.map { |msg| deep_clone(msg) }
-
-      # Apply caching if enabled and supported
-      caching_supported = supports_prompt_caching?(model)
-      caching_enabled = enable_caching && caching_supported
-
-      if is_anthropic
-        send_anthropic_request(processed_messages, model, tools, max_tokens, caching_enabled)
+      if anthropic_format?
+        send_anthropic_request(cloned, model, tools, max_tokens, caching_enabled)
       else
-        send_openai_request(processed_messages, model, tools, max_tokens, caching_enabled)
+        send_openai_request(cloned, model, tools, max_tokens, caching_enabled)
       end
     end
 
-    # Format tool results based on API type
-    # Anthropic API: tool results go in user message content array
-    # OpenAI API: tool results are separate messages with role: "tool"
+    # Format tool results into canonical messages ready to append to @messages.
+    # Always returns canonical format (role: "tool") regardless of API type —
+    # conversion to API-native happens inside each send_*_request.
     def format_tool_results(response, tool_results, model:)
       return [] if tool_results.empty?
 
-      is_anthropic = anthropic_format?(model)
-
-      # Create a map of tool_call_id -> result for quick lookup
-      results_map = tool_results.each_with_object({}) do |result, hash|
-        hash[result[:id]] = result
-      end
-
-      if is_anthropic
-        # Anthropic format: tool results in user message content array
-        tool_result_blocks = response[:tool_calls].map do |tool_call|
-          result = results_map[tool_call[:id]]
-          if result
-            {
-              type: "tool_result",
-              tool_use_id: tool_call[:id],
-              content: result[:content]
-            }
-          else
-            {
-              type: "tool_result",
-              tool_use_id: tool_call[:id],
-              content: JSON.generate({ error: "Tool result missing" })
-            }
-          end
-        end
-
-        # Return as a user message
-        [
-          {
-            role: "user",
-            content: tool_result_blocks
-          }
-        ]
+      if anthropic_format?
+        MessageFormat::Anthropic.format_tool_results(response, tool_results)
       else
-        # OpenAI format: tool results as separate messages
-        response[:tool_calls].map do |tool_call|
-          result = results_map[tool_call[:id]]
-          if result
-            {
-              role: "tool",
-              tool_call_id: result[:id],
-              content: result[:content]
-            }
-          else
-            {
-              role: "tool",
-              tool_call_id: tool_call[:id],
-              content: JSON.generate({ error: "Tool result missing" })
-            }
-          end
-        end
+        MessageFormat::OpenAI.format_tool_results(response, tool_results)
       end
+    end
+
+    # ── Prompt-caching support ────────────────────────────────────────────────
+
+    # Returns true for Claude 3.5+ models that support prompt caching.
+    def supports_prompt_caching?(model)
+      model_str = model.to_s.downcase
+      return false unless model_str.include?("claude")
+
+      model_str.match?(/claude(?:-3[-.]?[5-9]|-[4-9]|-sonnet-[34])/)
     end
 
     private
 
-    # Send request using OpenAI API format
-    def send_openai_request(messages, model, tools, max_tokens, caching_enabled)
-      # Apply caching to messages if enabled
-      processed_messages = caching_enabled ? apply_message_caching(messages) : messages
+    # ── Anthropic request / response ──────────────────────────────────────────
 
-      body = {
-        model: model,
-        max_tokens: max_tokens,
-        messages: processed_messages
-      }
-
-      # Add tools if provided
-      if tools&.any?
-        if caching_enabled
-          cached_tools = tools.map { |tool| deep_clone(tool) }
-          cached_tools.last[:cache_control] = { type: "ephemeral" }
-          body[:tools] = cached_tools
-        else
-          body[:tools] = tools
-        end
-      end
-
-      response = openai_connection.post("chat/completions") do |req|
-        req.body = body.to_json
-      end
-
-      handle_tool_response(response)
-    end
-
-    # Send request using Anthropic API format
     def send_anthropic_request(messages, model, tools, max_tokens, caching_enabled)
-      # Convert OpenAI message format to Anthropic format
-      body = build_anthropic_body(messages, model, tools, max_tokens, caching_enabled)
+      # Apply cache_control to the message that marks the cache breakpoint
+      messages = apply_message_caching(messages) if caching_enabled
 
-      response = anthropic_connection.post("v1/messages") do |req|
-        req.body = body.to_json
-      end
+      body     = MessageFormat::Anthropic.build_request_body(messages, model, tools, max_tokens, caching_enabled)
+      response = anthropic_connection.post("v1/messages") { |r| r.body = body.to_json }
 
-      handle_anthropic_response(response)
+      raise_error(response) unless response.status == 200
+      MessageFormat::Anthropic.parse_response(JSON.parse(response.body))
     end
 
-    # Build request body in Anthropic format
-    def build_anthropic_body(messages, model, tools, max_tokens, caching_enabled)
-      # Separate system messages from regular messages
-      system_messages = messages.select { |m| m[:role] == "system" }
-      regular_messages = messages.reject { |m| m[:role] == "system" }
-
-      # Build system for Anthropic - use string format which is most compatible
-      system = if system_messages.any?
-        system_messages.map do |msg|
-          content = msg[:content]
-          if content.is_a?(String)
-            content
-          elsif content.is_a?(Array)
-            content.map { |block| block.is_a?(Hash) ? (block[:text] || block.dig(:text) || "") : block.to_s }.compact.join("\n")
-          else
-            content.to_s
-          end
-        end.join("\n\n")
-      else
-        ""
-      end
-
-      # Convert regular messages to Anthropic format
-      anthropic_messages = regular_messages.map { |msg| convert_to_anthropic_message(msg, caching_enabled) }
-
-      # Convert tools to Anthropic format
-      anthropic_tools = tools&.map { |tool| convert_to_anthropic_tool(tool, caching_enabled) }
-
-      # Add cache_control to last tool if caching is enabled
-      if caching_enabled && anthropic_tools&.any?
-        anthropic_tools.last[:cache_control] = { type: "ephemeral" }
-      end
-
-      body = {
-        model: model,
-        max_tokens: max_tokens,
-        messages: anthropic_messages
-      }
-
-      # Only include system if it's not empty
-      body[:system] = system if system && !system.empty?
-
-      body[:tools] = anthropic_tools if anthropic_tools&.any?
-
-      body
+    def parse_simple_anthropic_response(response)
+      raise_error(response) unless response.status == 200
+      data = JSON.parse(response.body)
+      (data["content"] || []).select { |b| b["type"] == "text" }.map { |b| b["text"] }.join("")
     end
 
-    # Convert a message to Anthropic format
-    def convert_to_anthropic_message(message, caching_enabled)
-      role = message[:role]
-      content = message[:content]
-      tool_calls = message[:tool_calls]
+    # ── OpenAI request / response ─────────────────────────────────────────────
 
-      # For assistant messages with tool_calls, convert tool_calls to content blocks
-      if role == "assistant" && tool_calls && tool_calls.any?
-        # Build content blocks from both content and tool_calls
-        blocks = []
+    def send_openai_request(messages, model, tools, max_tokens, caching_enabled)
+      body     = MessageFormat::OpenAI.build_request_body(messages, model, tools, max_tokens, caching_enabled)
+      response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
 
-        # Add text content first
-        if content.is_a?(String) && !content.empty?
-          blocks << { type: "text", text: content }
-        elsif content.is_a?(Array)
-          blocks.concat(content.map do |block|
-            case block[:type]
-            when "text"
-              { type: "text", text: block[:text] }
-            when "image_url"
-              url = block.dig(:image_url, :url) || block[:url]
-              if url&.start_with?("data:")
-                match = url.match(/^data:([^;]+);base64,(.*)$/)
-                if match
-                  { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } }
-                else
-                  { type: "image", source: { type: "url", url: url } }
-                end
-              else
-                { type: "image", source: { type: "url", url: url } }
-              end
-            else
-              block
-            end
-          end)
-        end
-
-        # Add tool_use blocks
-        tool_calls.each do |call|
-          # Handle both OpenAI format (with function key) and direct format
-          if call[:function]
-            # OpenAI format
-            tool_use_block = {
-              type: "tool_use",
-              id: call[:id],
-              name: call[:function][:name],
-              input: call[:function][:arguments].is_a?(String) ? JSON.parse(call[:function][:arguments]) : call[:function][:arguments]
-            }
-          else
-            # Direct format
-            tool_use_block = {
-              type: "tool_use",
-              id: call[:id],
-              name: call[:name],
-              input: call[:arguments].is_a?(String) ? JSON.parse(call[:arguments]) : call[:arguments]
-            }
-          end
-          blocks << tool_use_block
-        end
-
-        return { role: role, content: blocks }
-      end
-
-      # Convert string content to array format
-      if content.is_a?(String)
-        return { role: role, content: [{ type: "text", text: content }] }
-      end
-
-      # Handle array content (already in some format)
-      if content.is_a?(Array)
-        blocks = content.map do |block|
-          case block[:type]
-          when "text"
-            { type: "text", text: block[:text] }
-          when "image_url"
-            url = block.dig(:image_url, :url) || block[:url]
-            if url&.start_with?("data:")
-              match = url.match(/^data:([^;]+);base64,(.*)$/)
-              if match
-                { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } }
-              else
-                { type: "image", source: { type: "url", url: url } }
-              end
-            else
-              { type: "image", source: { type: "url", url: url } }
-            end
-          else
-            block
-          end
-        end
-        return { role: role, content: blocks }
-      end
-
-      { role: role, content: message[:content] }
+      raise_error(response) unless response.status == 200
+      MessageFormat::OpenAI.parse_response(JSON.parse(response.body))
     end
 
-    # Convert a tool to Anthropic format
-    # Handles both OpenAI format (with nested function key) and direct format
-    def convert_to_anthropic_tool(tool, caching_enabled)
-      # Handle OpenAI format from to_function_definition
-      func = tool[:function] || tool
-      {
-        name: func[:name],
-        description: func[:description],
-        input_schema: func[:parameters]
-      }
+    def parse_simple_openai_response(response)
+      raise_error(response) unless response.status == 200
+      JSON.parse(response.body)["choices"].first["message"]["content"]
     end
 
-    # Handle Anthropic API response
-    def handle_anthropic_response(response)
-      case response.status
-      when 200
-        data = JSON.parse(response.body)
-        content_blocks = data["content"] || []
-        usage = data["usage"] || {}
+    # ── Prompt caching helpers ────────────────────────────────────────────────
 
-        # Extract content
-        content = content_blocks.select { |b| b["type"] == "text" }.map { |b| b["text"] }.join("")
-
-        # Extract tool calls
-        tool_calls = content_blocks.select { |b| b["type"] == "tool_use" }.map do |tc|
-          {
-            id: tc["id"],
-            type: "function",
-            name: tc["name"],
-            arguments: tc["input"].is_a?(String) ? tc["input"] : tc["input"].to_json
-          }
-        end
-
-        # Parse finish reason
-        finish_reason = case data["stop_reason"]
-        when "end_turn" then "stop"
-        when "tool_use" then "tool_calls"
-        when "max_tokens" then "length"
-        else data["stop_reason"]
-        end
-
-        # Build usage data
-        usage_data = {
-          prompt_tokens: usage["input_tokens"],
-          completion_tokens: usage["output_tokens"],
-          total_tokens: usage["input_tokens"].to_i + usage["output_tokens"].to_i
-        }
-
-        # Add cache metrics if present
-        if usage["cache_read_input_tokens"]
-          usage_data[:cache_read_input_tokens] = usage["cache_read_input_tokens"]
-        end
-        if usage["cache_creation_input_tokens"]
-          usage_data[:cache_creation_input_tokens] = usage["cache_creation_input_tokens"]
-        end
-
-        {
-          content: content,
-          tool_calls: tool_calls,
-          finish_reason: finish_reason,
-          usage: usage_data,
-          raw_api_usage: usage
-        }
-      else
-        raise_error(response)
-      end
-    end
-
-    # Handle simple Anthropic response (without tool calls)
-    def handle_anthropic_simple_response(response)
-      case response.status
-      when 200
-        data = JSON.parse(response.body)
-        content_blocks = data["content"] || []
-
-        # Extract and return text content only (simple format, consistent with OpenAI)
-        content_blocks.select { |b| b["type"] == "text" }.map { |b| b["text"] }.join("")
-      else
-        raise_error(response)
-      end
-    end
-
-    # Check if the model supports prompt caching
-    # Currently only Claude 3.5+ models support this feature
-    def supports_prompt_caching?(model)
-      model_str = model.to_s.downcase
-
-      # Only Claude models support prompt caching
-      return false unless model_str.include?("claude")
-
-      # Pattern matching for supported Claude versions:
-      # - claude-3.5-*, claude-3-5-*, claude-3.5.*
-      # - claude-3.7-*, claude-3-7-*, claude-3.7.*
-      # - claude-4*, claude-sonnet-4*
-      # - anthropic/claude-sonnet-4* (OpenRouter format)
-      cache_pattern = /
-        claude                        # Must contain "claude"
-        (?:                          # Non-capturing group for version patterns
-          (?:-3[-.]?[5-9])|          # 3.5, 3.6, 3.7, 3.8, 3.9 or 3-5, 3-6, etc
-          (?:-[4-9])|                # 4, 5, 6, 7, 8, 9 (future versions)
-          (?:-sonnet-[34])           # OpenRouter: claude-sonnet-3, claude-sonnet-4
-        )
-      /x
-
-      model_str.match?(cache_pattern)
-    end
-
-    # Apply cache_control to messages for prompt caching
-    # Strategy: Add cache_control on the LAST message before tools
-    # This ensures everything from start to the breakpoint gets cached
-    #
-    # Special case: When compression instruction is the last message
-    # (identified by system_injected: true), we place cache_control
-    # on the second-to-last message instead. This avoids cache write
-    # for the compression instruction, saving ~31K tokens per compression.
+    # Add cache_control marker to the appropriate message in the array.
+    # Strategy: mark the last message, unless that message is a compression
+    # instruction (system_injected: true) — in that case mark the one before it.
     def apply_message_caching(messages)
       return messages if messages.empty?
 
-      # Determine cache breakpoint index
-      # If last message is a compression instruction, use second-to-last
       cache_index = if is_compression_instruction?(messages.last)
-        messages.length - 2
-      else
-        messages.length - 1
-      end
+                      [messages.length - 2, 0].max
+                    else
+                      messages.length - 1
+                    end
 
-      # Safety check: ensure cache_index is valid
-      cache_index = [0, cache_index].max
-
-      # Add cache_control to the target message
       messages.map.with_index do |msg, idx|
-        if idx == cache_index
-          add_cache_control_to_message(msg)
-        else
-          msg
-        end
+        idx == cache_index ? add_cache_control_to_message(msg) : msg
       end
     end
 
-    # Convert message content to array format and add cache_control
-    # Claude API format: content: [{type: "text", text: "...", cache_control: {...}}]
+    # Wrap or extend the message's content with a cache_control marker.
     def add_cache_control_to_message(msg)
       content = msg[:content]
 
-      # Convert content to array format if it's a string
-      content_array = if content.is_a?(String)
-        [{ type: "text", text: content, cache_control: { type: "ephemeral" } }]
-      elsif content.is_a?(Array)
-        # Content is already an array, add cache_control to the last block
-        content.map.with_index do |block, idx|
-          if idx == content.length - 1
-            block.merge(cache_control: { type: "ephemeral" })
-          else
-            block
-          end
-        end
-      else
-        # Unknown format, return as-is
-        return msg
-      end
+      content_array = case content
+                      when String
+                        [{ type: "text", text: content, cache_control: { type: "ephemeral" } }]
+                      when Array
+                        content.map.with_index do |block, idx|
+                          idx == content.length - 1 ? block.merge(cache_control: { type: "ephemeral" }) : block
+                        end
+                      else
+                        return msg
+                      end
 
       msg.merge(content: content_array)
     end
 
-    # Check if message is a compression instruction (from MessageCompressor)
-    # Compression instructions are marked with system_injected: true
-    private def is_compression_instruction?(message)
+    def is_compression_instruction?(message)
       message.is_a?(Hash) && message[:system_injected] == true
     end
 
-    # Deep clone a hash/array structure (for tool definitions)
-    def deep_clone(obj)
-      case obj
-      when Hash
-        obj.each_with_object({}) { |(k, v), h| h[k] = deep_clone(v) }
-      when Array
-        obj.map { |item| deep_clone(item) }
-      when String, Symbol, Integer, Float, TrueClass, FalseClass, NilClass
-        obj
-      else
-        obj.dup rescue obj
-      end
-    end
+    # ── HTTP connections ──────────────────────────────────────────────────────
 
-    # Connection for OpenAI API format (uses Bearer token)
     def openai_connection
       @openai_connection ||= Faraday.new(url: @base_url) do |conn|
-        conn.headers["Content-Type"] = "application/json"
+        conn.headers["Content-Type"]  = "application/json"
         conn.headers["Authorization"] = "Bearer #{@api_key}"
-        conn.options.timeout = 120
+        conn.options.timeout      = 120
         conn.options.open_timeout = 10
-        conn.ssl.verify = false
+        conn.ssl.verify           = false
         conn.adapter Faraday.default_adapter
       end
     end
 
-    # Connection for Anthropic API format (uses x-api-key header)
     def anthropic_connection
       @anthropic_connection ||= Faraday.new(url: @base_url) do |conn|
-        conn.headers["Content-Type"] = "application/json"
-        conn.headers["x-api-key"] = @api_key
+        conn.headers["Content-Type"]   = "application/json"
+        conn.headers["x-api-key"]      = @api_key
         conn.headers["anthropic-version"] = "2023-06-01"
         conn.headers["anthropic-dangerous-direct-browser-access"] = "true"
-        conn.options.timeout = 120
+        conn.options.timeout      = 120
         conn.options.open_timeout = 10
-        conn.ssl.verify = false
+        conn.ssl.verify           = false
         conn.adapter Faraday.default_adapter
       end
     end
 
+    # ── Error handling ────────────────────────────────────────────────────────
+
     def handle_test_response(response)
-      case response.status
-      when 200
-        { success: true }
-      else
-        # Extract error details for better user feedback
-        error_body = begin
-          JSON.parse(response.body)
-        rescue JSON::ParserError
-          nil
-        end
-        error_message = extract_error_message(error_body, response.body)
-        { success: false, error: error_message }
-      end
+      return { success: true } if response.status == 200
+
+      error_body = JSON.parse(response.body) rescue nil
+      { success: false, error: extract_error_message(error_body, response.body) }
     end
-
-    def handle_response(response)
-      case response.status
-      when 200
-        data = JSON.parse(response.body)
-        data["choices"].first["message"]["content"]
-      else
-        raise_error(response)
-      end
-    end
-
-    def handle_tool_response(response)
-      case response.status
-      when 200
-        data = JSON.parse(response.body)
-        message = data["choices"].first["message"]
-        usage = data["usage"]
-
-        # Store raw API usage for debugging
-        raw_api_usage = usage.dup
-
-        # Parse usage with cache information
-        usage_data = {
-          prompt_tokens: usage["prompt_tokens"],
-          completion_tokens: usage["completion_tokens"],
-          total_tokens: usage["total_tokens"]
-        }
-
-        # Add OpenRouter cost information if present
-        if usage["cost"]
-          usage_data[:api_cost] = usage["cost"]
-        end
-
-        # Add cache metrics if present (Claude API with prompt caching)
-        if usage["cache_creation_input_tokens"]
-          usage_data[:cache_creation_input_tokens] = usage["cache_creation_input_tokens"]
-        end
-        if usage["cache_read_input_tokens"]
-          usage_data[:cache_read_input_tokens] = usage["cache_read_input_tokens"]
-        end
-
-        # Add OpenRouter cache information from prompt_tokens_details
-        if usage["prompt_tokens_details"]
-          details = usage["prompt_tokens_details"]
-          if details["cached_tokens"] && details["cached_tokens"] > 0
-            usage_data[:cache_read_input_tokens] = details["cached_tokens"]
-          end
-          if details["cache_write_tokens"] && details["cache_write_tokens"] > 0
-            usage_data[:cache_creation_input_tokens] = details["cache_write_tokens"]
-          end
-        end
-
-        result = {
-          content: message["content"],
-          tool_calls: parse_tool_calls(message["tool_calls"]),
-          finish_reason: data["choices"].first["finish_reason"],
-          usage: usage_data,
-          raw_api_usage: raw_api_usage
-        }
-
-        # Preserve reasoning_content if present (e.g. Kimi/Moonshot extended thinking).
-        # The API requires this field to be echoed back in the message history on
-        # subsequent requests, otherwise it returns HTTP 400.
-        result[:reasoning_content] = message["reasoning_content"] if message["reasoning_content"]
-
-        result
-      else
-        raise_error(response)
-      end
-    end
-
-    private
 
     def raise_error(response)
-      # Try to parse error body as JSON for better error messages
-      error_body = begin
-        JSON.parse(response.body)
-      rescue JSON::ParserError
-        nil
-      end
-
-      # Extract meaningful error message from response
+      error_body    = JSON.parse(response.body) rescue nil
       error_message = extract_error_message(error_body, response.body)
 
       case response.status
       when 400
-        # Bad request - could be invalid model, quota exceeded, etc.
-        hint = if error_message.downcase.include?("unavailable") || error_message.downcase.include?("quota")
-          " (possibly out of credits)"
-        else
-          ""
-        end
+        hint = error_message.downcase.match?(/unavailable|quota/) ? " (possibly out of credits)" : ""
         raise AgentError, "API request failed (400): #{error_message}#{hint}"
-      when 401
-        raise AgentError, "Invalid API key"
-      when 403
-        raise AgentError, "Access denied: #{error_message}"
-      when 404
-        raise AgentError, "API endpoint not found: #{error_message}"
-      when 429
-        raise AgentError, "Rate limit exceeded"
-      when 500..599
-        raise AgentError, "Server error (#{response.status}): #{error_message}"
-      else
-        raise AgentError, "Unexpected error (#{response.status}): #{error_message}"
+      when 401 then raise AgentError, "Invalid API key"
+      when 403 then raise AgentError, "Access denied: #{error_message}"
+      when 404 then raise AgentError, "API endpoint not found: #{error_message}"
+      when 429 then raise AgentError, "Rate limit exceeded"
+      when 500..599 then raise AgentError, "Server error (#{response.status}): #{error_message}"
+      else raise AgentError, "Unexpected error (#{response.status}): #{error_message}"
       end
     end
 
-    # Extract the most meaningful error message from API response
-    private def extract_error_message(error_body, raw_body)
-      # Check if response is HTML (indicates wrong endpoint or server error)
-      if raw_body.is_a?(String) && raw_body.strip.start_with?('<!DOCTYPE', '<html')
+    def extract_error_message(error_body, raw_body)
+      if raw_body.is_a?(String) && raw_body.strip.start_with?("<!DOCTYPE", "<html")
         return "Invalid API endpoint or server error (received HTML instead of JSON)"
       end
 
       return raw_body unless error_body.is_a?(Hash)
 
-      # Priority order for error messages:
-      # 1. upstreamMessage (often contains the real reason)
-      # 2. error.message (Anthropic format)
-      # 3. message
-      # 4. error (string)
-      # 5. raw body (truncated if too long)
-      if error_body["upstreamMessage"] && !error_body["upstreamMessage"].empty?
-        error_body["upstreamMessage"]
-      elsif error_body.dig("error", "message")
-        error_body.dig("error", "message")
-      elsif error_body["message"]
-        error_body["message"]
-      elsif error_body["error"].is_a?(String)
-        error_body["error"]
-      else
-        # Truncate raw body if too long
-        raw_body.is_a?(String) && raw_body.length > 200 ? "#{raw_body[0..200]}..." : raw_body
-      end
+      error_body["upstreamMessage"]&.then { |m| return m unless m.empty? }
+      error_body.dig("error", "message")&.then { |m| return m }
+      error_body["message"]&.then             { |m| return m }
+      error_body["error"].is_a?(String) ? error_body["error"] : (raw_body.to_s[0..200] + (raw_body.to_s.length > 200 ? "..." : ""))
     end
 
-    def parse_tool_calls(tool_calls)
-      return nil if tool_calls.nil? || tool_calls.empty?
+    # ── Utilities ─────────────────────────────────────────────────────────────
 
-      tool_calls.map do |call|
-        # Handle cases where function might be nil or missing
-        function_data = call["function"] || {}
-
-        {
-          id: call["id"],
-          type: call["type"],
-          name: function_data["name"],
-          arguments: function_data["arguments"]
-        }
+    def deep_clone(obj)
+      case obj
+      when Hash  then obj.each_with_object({}) { |(k, v), h| h[k] = deep_clone(v) }
+      when Array then obj.map { |item| deep_clone(item) }
+      else obj
       end
     end
   end
