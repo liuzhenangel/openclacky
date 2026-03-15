@@ -124,6 +124,10 @@ module Clacky
     # ── OpenAI request / response ─────────────────────────────────────────────
 
     def send_openai_request(messages, model, tools, max_tokens, caching_enabled)
+      # Apply cache_control markers to messages when caching is enabled.
+      # OpenRouter proxies Claude with the same cache_control field convention as Anthropic direct.
+      messages = apply_message_caching(messages) if caching_enabled
+
       body     = MessageFormat::OpenAI.build_request_body(messages, model, tools, max_tokens, caching_enabled)
       response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
 

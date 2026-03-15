@@ -124,7 +124,10 @@ module Clacky
       # ── Private helpers ───────────────────────────────────────────────────────
 
       # Convert a single canonical message to Anthropic API format.
-      private_class_method def self.to_api_message(msg, caching_enabled)
+      # caching_enabled is kept for signature compatibility but is no longer used here —
+      # cache_control markers are embedded into messages by Client#apply_message_caching
+      # before build_request_body is called.
+      private_class_method def self.to_api_message(msg, _caching_enabled)
         role      = msg[:role]
         content   = msg[:content]
         tool_calls = msg[:tool_calls]
@@ -158,23 +161,27 @@ module Clacky
         end
 
         # regular user/assistant message
-        blocks = content_to_blocks(content, add_cache_control: caching_enabled && role == "user")
+        # NOTE: cache_control markers are applied by Client#apply_message_caching before
+        # build_request_body is called. We must NOT add extra cache_control here, because:
+        #   1. apply_message_caching already placed the marker on the correct breakpoint message.
+        #   2. Adding cache_control to every user message causes Anthropic to treat every
+        #      user message as a cache breakpoint, which invalidates the intended cache boundary
+        #      and results in cache misses (cache_read=0) every turn.
+        blocks = content_to_blocks(content)
         { role: role, content: blocks }
       end
 
       # Convert content (String or Array) to Anthropic content block array.
-      private_class_method def self.content_to_blocks(content, add_cache_control: false)
-        blocks = case content
-                 when String
-                   [{ type: "text", text: content }]
-                 when Array
-                   content.map { |b| normalize_block(b) }.compact
-                 else
-                   [{ type: "text", text: content.to_s }]
-                 end
-
-        blocks.last[:cache_control] = { type: "ephemeral" } if add_cache_control && blocks.any?
-        blocks
+      # cache_control markers already embedded by Client#apply_message_caching are preserved.
+      private_class_method def self.content_to_blocks(content)
+        case content
+        when String
+          [{ type: "text", text: content }]
+        when Array
+          content.map { |b| normalize_block(b) }.compact
+        else
+          [{ type: "text", text: content.to_s }]
+        end
       end
 
       # Normalize a single content block to Anthropic format.
@@ -183,7 +190,10 @@ module Clacky
 
         case block[:type]
         when "text"
-          { type: "text", text: block[:text] }
+          # Preserve cache_control if present (placed by Client#apply_message_caching)
+          result = { type: "text", text: block[:text] }
+          result[:cache_control] = block[:cache_control] if block[:cache_control]
+          result
         when "image_url"
           url = block.dig(:image_url, :url) || block[:url]
           url_to_image_block(url)
