@@ -1009,7 +1009,10 @@ body {
   opacity: 0.7;
   padding: 2px 4px;
   margin-top: -8px;
+  cursor: default;
+  transition: opacity 0.15s ease;
 }
+.token-usage-line:hover { opacity: 1; }
 .token-usage-line b { font-weight: 600; color: var(--color-text-secondary); }
 .tu-label { color: var(--color-text-tertiary); font-weight: 600; }
 .tu-sep   { color: var(--color-text-muted); opacity: 0.45; padding: 0 1px; }
@@ -1021,6 +1024,14 @@ body {
 .tu-delta-mid   { color: #f59e0b; }   /* yellow — moderate */
 .tu-delta-high  { color: #f87171; }   /* red — large */
 .tu-delta-neg   { color: var(--color-accent-primary); }  /* cyan — compression */
+
+/* Detail fields: hidden by default, revealed on hover */
+.tu-detail {
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+.token-usage-line:hover .tu-detail { display: contents; }
 
 /* ── Tool group (collapsible tool call list) ─────────────────────────────── */
 .tool-group {
@@ -1154,6 +1165,23 @@ body {
   white-space: nowrap;
   overflow: hidden;
   flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+  cursor: default;
+}
+
+#session-info-bar:hover {
+  opacity: 1;
+}
+
+/* Detail fields: hidden by default, revealed on hover */
+.sib-detail {
+  display: none;
+  align-items: center;
+}
+
+#session-info-bar:hover .sib-detail {
+  display: contents;
 }
 
 #sib-id {

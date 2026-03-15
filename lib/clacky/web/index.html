@@ -172,17 +172,21 @@
       <div id="messages"></div>
       <!-- Session info bar — mirrors CLI bottom status bar -->
       <div id="session-info-bar" style="display:none">
+        <!-- Always visible: status | id | model | cost -->
         <span id="sib-status"></span>
         <span class="sib-sep">│</span>
         <span id="sib-id"></span>
-        <span class="sib-sep">│</span>
-        <span id="sib-dir"></span>
-        <span id="sib-mode-wrap"><span class="sib-sep">│</span><span id="sib-mode"></span></span>
         <span id="sib-model-wrap"><span class="sib-sep">│</span><span id="sib-model"></span></span>
         <span class="sib-sep">│</span>
-        <span id="sib-tasks"></span>
-        <span class="sib-sep">│</span>
         <span id="sib-cost"></span>
+        <!-- Detail fields: hidden by default, revealed on hover -->
+        <span class="sib-detail">
+          <span class="sib-sep">│</span>
+          <span id="sib-dir"></span>
+          <span id="sib-mode-wrap"><span class="sib-sep">│</span><span id="sib-mode"></span></span>
+          <span class="sib-sep">│</span>
+          <span id="sib-tasks"></span>
+        </span>
       </div>
 
       <div id="input-area">
