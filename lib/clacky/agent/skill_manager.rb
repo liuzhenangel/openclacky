@@ -177,19 +177,19 @@ module Clacky
         #   user:      "/skill-name [args]"          ← real user input
         #   assistant: "[expanded skill content]"    ← system_injected (skill instructions)
         #   user:      "[SYSTEM] Please proceed..."  ← system_injected (Claude compat shim)
-        @messages << {
+        @history.append({
           role: "assistant",
           content: expanded_content,
           task_id: task_id,
           system_injected: true
-        }
+        })
 
-        @messages << {
+        @history.append({
           role: "user",
           content: "[SYSTEM] The skill instructions above have been loaded. Please proceed to execute the task now.",
           task_id: task_id,
           system_injected: true
-        }
+        })
 
         @ui&.show_info("Injected skill content for /#{skill.identifier}")
       end
@@ -293,21 +293,21 @@ module Clacky
           system_prompt_suffix: skill_instructions
         )
 
-        # Run subagent with the actual task as the sole user turn
-        result = subagent.run(arguments)
+        # Run subagent with the actual task as the sole user turn.
+        # If the user typed the skill command with no arguments (e.g. "/jade-appraisal"),
+        # use a generic trigger phrase so the user message is never empty.
+        task_input = arguments.to_s.strip.empty? ? "Please proceed." : arguments
+        result = subagent.run(task_input)
 
         # Generate summary
         summary = generate_subagent_summary(subagent)
 
-        # Insert summary back to parent agent messages (replacing the instruction message)
-        # Find and replace the last message with subagent_instructions flag
-        messages_with_instructions = @messages.select { |m| m[:subagent_instructions] }
-        if messages_with_instructions.any?
-          instruction_msg = messages_with_instructions.last
-          instruction_msg[:content] = summary
-          instruction_msg.delete(:subagent_instructions)
-          instruction_msg[:subagent_result] = true
-          instruction_msg[:skill_name] = skill.identifier
+        # Mutate the subagent_instructions message in-place to become the result summary
+        @history.mutate_last_matching(->(m) { m[:subagent_instructions] }) do |m|
+          m[:content] = summary
+          m.delete(:subagent_instructions)
+          m[:subagent_result] = true
+          m[:skill_name] = skill.identifier
         end
 
         # Log completion
