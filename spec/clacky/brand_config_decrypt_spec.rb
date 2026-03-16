@@ -257,7 +257,7 @@ RSpec.describe Clacky::BrandConfig, "#decrypt_skill_content (AES-256-GCM)" do
           .and_return({ success: false, error: "rate_limited", data: {} })
 
         expect { config.decrypt_skill_content(File.join(info[:skill_dir], "SKILL.md.enc")) }
-          .to raise_error(RuntimeError, /Failed to fetch decryption key.*rate_limited/)
+          .to raise_error(RuntimeError, /Brand skill decrypt failed.*rate_limited/)
       end
     end
 
@@ -271,7 +271,7 @@ RSpec.describe Clacky::BrandConfig, "#decrypt_skill_content (AES-256-GCM)" do
           .and_return({ success: false, error: "Network error: connection refused", data: {} })
 
         expect { config.decrypt_skill_content(File.join(info[:skill_dir], "SKILL.md.enc")) }
-          .to raise_error(RuntimeError, /Failed to fetch decryption key/)
+          .to raise_error(RuntimeError, /Brand skill decrypt failed/)
       end
     end
 
@@ -469,7 +469,7 @@ RSpec.describe Clacky::BrandConfig, "#decrypt_skill_content (AES-256-GCM)" do
         File.write(manifest_path, JSON.generate(manifest))
 
         expect { config.decrypt_skill_content(File.join(info[:skill_dir], "SKILL.md.enc")) }
-          .to raise_error(RuntimeError, /AES-256-GCM decryption failed/)
+          .to raise_error(RuntimeError, /Decryption failed/)
       end
     end
 
@@ -487,7 +487,7 @@ RSpec.describe Clacky::BrandConfig, "#decrypt_skill_content (AES-256-GCM)" do
         File.binwrite(enc_path, ciphertext)
 
         expect { config.decrypt_skill_content(enc_path) }
-          .to raise_error(RuntimeError, /AES-256-GCM decryption failed/)
+          .to raise_error(RuntimeError, /Decryption failed/)
       end
     end
 
@@ -501,7 +501,7 @@ RSpec.describe Clacky::BrandConfig, "#decrypt_skill_content (AES-256-GCM)" do
         stub_key_server(config, wrong_key.unpack1("H*"))
 
         expect { config.decrypt_skill_content(File.join(info[:skill_dir], "SKILL.md.enc")) }
-          .to raise_error(RuntimeError, /AES-256-GCM decryption failed/)
+          .to raise_error(RuntimeError, /Decryption failed/)
       end
     end
 
