@@ -172,11 +172,8 @@ module Clacky
         page.each do |round|
           msg = round[:user_msg]
           raw_text = extract_text_from_content(msg[:content])
-          # Strip embedded [File: ...] blocks from display text and return them separately
-          display_text, file_refs = extract_files_from_content(raw_text)
-          # Extract image data URLs from multipart content (for history replay rendering)
-          # Emit user message with its timestamp for dedup on the frontend
-          ui.show_user_message(display_text, created_at: msg[:created_at], files: file_refs)
+          # Files are stored as system_injected messages (skipped below), not embedded in user text.
+          ui.show_user_message(raw_text, created_at: msg[:created_at])
 
           round[:events].each do |ev|
             # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
