@@ -66,7 +66,7 @@ module Clacky
           # @param content [String] text content
           def send_message(chatid, content)
             Clacky::Logger.info("[WecomWSClient] send_message chat=#{chatid} length=#{content.length}")
-            send_frame(
+            send_frame_and_wait(
               cmd: "aibot_send_msg",
               req_id: generate_req_id("send"),
               body: {
@@ -98,9 +98,10 @@ module Clacky
             media_id = upload_media(data, filename: filename, type: media_type)
             Clacky::Logger.info("[WecomWSClient] upload done media_id=#{media_id}")
 
-            send_frame(
+            req_id = generate_req_id("send_file")
+            send_frame_and_wait(
               cmd: "aibot_send_msg",
-              req_id: generate_req_id("send_file"),
+              req_id: req_id,
               body: {
                 chatid: chatid,
                 msgtype: media_type,
@@ -191,7 +192,8 @@ module Clacky
             case cmd
             when "aibot_msg_callback"
               Clacky::Logger.info("[WecomWSClient] inbound message req_id=#{req_id}")
-              @on_message&.call(body.merge("_req_id" => req_id))
+              cb_body = body.merge("_req_id" => req_id)
+              Thread.new { @on_message&.call(cb_body) }
             when "aibot_event_callback"
               Clacky::Logger.info("[WecomWSClient] event_callback (ignored)")
             when nil
