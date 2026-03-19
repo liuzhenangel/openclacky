@@ -208,9 +208,22 @@ module Clacky
 
             # Special handling: request_user_feedback question is shown as an
             # assistant message (matching real-time behavior), not as a tool call.
+            # Reconstruct the full formatted message including options (mirrors RequestUserFeedback#execute).
             if name == "request_user_feedback"
               question = args.is_a?(Hash) ? (args[:question] || args["question"]).to_s : ""
-              ui.show_assistant_message(question, files: []) unless question.empty?
+              context  = args.is_a?(Hash) ? (args[:context]  || args["context"]).to_s  : ""
+              options  = args.is_a?(Hash) ? (args[:options]  || args["options"])        : nil
+
+              unless question.empty?
+                parts = []
+                parts << "**Context:** #{context.strip}" << "" unless context.strip.empty?
+                parts << "**Question:** #{question.strip}"
+                if options && !options.empty?
+                  parts << "" << "**Options:**"
+                  options.each_with_index { |opt, i| parts << "  #{i + 1}. #{opt}" }
+                end
+                ui.show_assistant_message(parts.join("\n"), files: [])
+              end
             else
               ui.show_tool_call(name, args)
             end
