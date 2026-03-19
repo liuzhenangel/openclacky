@@ -11,57 +11,46 @@ module Clacky
         @skill_loader.load_all
       end
 
-      # Check if input is a skill command and process it
-      # @param input [String] User input
-      # @return [Hash, nil] Returns { skill: Skill, arguments: String } if skill command, nil otherwise
+      # Parse a slash command input and resolve the matching skill.
+      #
+      # Returns a result hash in all cases so the caller can act on the specific outcome:
+      #
+      #   { matched: false }                          — input is not a slash command
+      #   { matched: true, found: false,
+      #     skill_name: "xxx", reason: :not_found }   — /xxx but no skill registered
+      #   { matched: true, found: false,
+      #     skill_name: "xxx",
+      #     reason: :not_user_invocable, skill: }     — skill exists but blocks direct invocation
+      #   { matched: true, found: false,
+      #     skill_name: "xxx",
+      #     reason: :agent_not_allowed, skill: }      — skill not allowed for current agent profile
+      #   { matched: true, found: true,
+      #     skill_name: "xxx",
+      #     skill:, arguments: }                      — success
+      #
+      # @param input [String] Raw user input
+      # @return [Hash]
       def parse_skill_command(input)
-        # Check for slash command pattern
-        if input.start_with?("/")
-          # Extract command and arguments
-          match = input.match(%r{^/(\S+)(?:\s+(.*))?$})
-          return nil unless match
+        return { matched: false } unless input.start_with?("/")
 
-          skill_name = match[1]
-          arguments = match[2] || ""
+        match = input.match(%r{^/(\S+)(?:\s+(.*))?$})
+        return { matched: false } unless match
 
-          # Find skill by command
-          skill = @skill_loader.find_by_command("/#{skill_name}")
-          return nil unless skill
+        skill_name = match[1]
+        arguments  = match[2] || ""
 
-          # Check if user can invoke this skill
-          return nil unless skill.user_invocable?
+        skill = @skill_loader.find_by_command("/#{skill_name}")
+        return { matched: true, found: false, skill_name: skill_name, reason: :not_found } unless skill
 
-          # Check if this skill is allowed for the current agent profile
-          return nil if @agent_profile && !skill.allowed_for_agent?(@agent_profile.name)
-
-          { skill: skill, arguments: arguments }
-        else
-          nil
-        end
-      end
-
-      # Execute a skill command
-      # @param input [String] User input (should be a skill command)
-      # @return [String] The expanded prompt with skill content
-      def execute_skill_command(input)
-        parsed = parse_skill_command(input)
-        return input unless parsed
-
-        skill = parsed[:skill]
-        arguments = parsed[:arguments]
-
-        # Check if skill requires forking a subagent
-        if skill.fork_agent?
-          return execute_skill_with_subagent(skill, arguments)
+        unless skill.user_invocable?
+          return { matched: true, found: false, skill_name: skill_name, reason: :not_user_invocable, skill: skill }
         end
 
-        # Process skill content with arguments (normal skill execution)
-        expanded_content = skill.process_content(arguments)
+        if @agent_profile && !skill.allowed_for_agent?(@agent_profile.name)
+          return { matched: true, found: false, skill_name: skill_name, reason: :agent_not_allowed, skill: skill }
+        end
 
-        # Log skill usage
-        @ui&.log("Executing skill: #{skill.identifier}", level: :info)
-
-        expanded_content
+        { matched: true, found: true, skill_name: skill_name, skill: skill, arguments: arguments }
       end
 
       # Maximum number of skills injected into the system prompt.
@@ -71,9 +60,12 @@ module Clacky
       # Generate skill context - loads all auto-invocable skills allowed by the agent profile
       # @return [String] Skill context to add to system prompt
       def build_skill_context
-        # Load all auto-invocable skills, filtered by the agent profile's skill whitelist
+        # Load all auto-invocable skills, filtered by the agent profile's skill whitelist.
+        # Invalid skills (bad slug / unrecoverable metadata) are excluded from the system
+        # prompt — they can't be invoked and should not clutter the context.
         all_skills = @skill_loader.load_all
         all_skills = filter_skills_by_profile(all_skills)
+        all_skills = all_skills.reject(&:invalid?)
         auto_invocable = all_skills.select(&:model_invocation_allowed?)
 
         # Enforce system prompt injection limit to control token usage
@@ -135,17 +127,50 @@ module Clacky
       # instructions and acts on them — no waiting for the LLM to discover and call
       # invoke_skill on its own.
       #
+      # When the slash command does not match any registered skill, a system message
+      # is injected instructing the LLM to inform the user in their own language and
+      # suggest similar skills — no error is raised, the LLM handles the reply.
+      #
       # @param user_input [String] Raw user input
       # @param task_id [Integer] Current task ID (for message tagging)
       # @return [void]
       def inject_skill_command_as_assistant_message(user_input, task_id)
-        parsed = parse_skill_command(user_input)
-        return unless parsed
+        result = parse_skill_command(user_input)
 
-        skill = parsed[:skill]
-        arguments = parsed[:arguments]
+        # Not a slash command at all — nothing to do
+        return unless result[:matched]
 
-        # fork_agent skills still run in an isolated subagent.
+        skill_name = result[:skill_name]
+
+        # Slash command recognised but skill could not be dispatched — inject an
+        # LLM-facing notice so the model explains the situation to the user in
+        # their own language instead of silently ignoring the command.
+        unless result[:found]
+          notice = case result[:reason]
+          when :not_found
+            suggestions = suggest_similar_skills(skill_name)
+            msg = "[SYSTEM] The user entered the slash command /#{skill_name} but no matching skill was found. " \
+                  "Please inform the user in their language that this skill does not exist."
+            msg += " Suggest they try one of these similar skills: #{suggestions.map { |s| "/#{s}" }.join(", ")}." if suggestions.any?
+            msg
+          when :not_user_invocable
+            "[SYSTEM] The user entered the slash command /#{skill_name} but this skill cannot be invoked directly via slash command. " \
+            "Please inform the user in their language that this skill is only available through the AI assistant automatically."
+          when :agent_not_allowed
+            "[SYSTEM] The user entered the slash command /#{skill_name} but this skill is not available in the current context. " \
+            "Please inform the user in their language that this skill is not enabled for the current session."
+          end
+          notice += " Do not attempt to execute any skill or tool. Just explain the situation clearly and helpfully."
+
+          @history.append({ role: "assistant", content: notice, task_id: task_id, system_injected: true })
+          @history.append({ role: "user", content: "[SYSTEM] Please respond to the user about the skill issue now.", task_id: task_id, system_injected: true })
+          return
+        end
+
+        skill     = result[:skill]
+        arguments = result[:arguments]
+
+        # fork_agent skills run in an isolated subagent
         if skill.fork_agent?
           execute_skill_with_subagent(skill, arguments)
           return
@@ -219,6 +244,31 @@ module Clacky
       end
 
       private
+
+      # Find skills whose identifiers are similar to the given name.
+      # Uses substring matching first, then character overlap as a fallback.
+      # Returns up to 3 suggestions sorted by relevance.
+      # @param name [String] The unrecognized skill name from the slash command
+      # @return [Array<String>] List of similar skill identifiers (slash-command safe)
+      private def suggest_similar_skills(name)
+        all = @skill_loader.all_skills.select(&:user_invocable?).map(&:identifier)
+        query = name.downcase
+
+        # Score each skill: substring match scores highest, then character overlap
+        scored = all.filter_map do |id|
+          id_lower = id.downcase
+          score = if id_lower.include?(query) || query.include?(id_lower)
+            2
+          else
+            # Count shared characters as a rough similarity measure
+            common = (query.chars & id_lower.chars).size
+            common > 0 ? 1 : nil
+          end
+          [id, score] if score
+        end
+
+        scored.sort_by { |_, s| -s }.first(3).map(&:first)
+      end
 
       # Filter skills by the agent profile name using the skill's own `agent:` field.
       # Each skill declares which agents it supports via its frontmatter `agent:` field.
