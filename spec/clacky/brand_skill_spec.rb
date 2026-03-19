@@ -243,24 +243,24 @@ RSpec.describe "Brand Skill system" do
       end
     end
 
-    it "raises when SKILL.md.enc is missing" do
+    it "raises when neither SKILL.md nor SKILL.md.enc is present" do
       with_temp_config_dir do |tmp|
-        config  = activated_brand_config(tmp)
+        config    = activated_brand_config(tmp)
         empty_dir = File.join(tmp, "empty-skill")
         FileUtils.mkdir_p(empty_dir)
 
         expect {
           Clacky::Skill.new(empty_dir, brand_skill: true, brand_config: config)
-        }.to raise_error(Clacky::AgentError, /SKILL\.md\.enc not found/)
+        }.to raise_error(Clacky::AgentError, /No SKILL\.md or SKILL\.md\.enc found/)
       end
     end
 
-    it "raises when brand_config is not provided" do
+    it "raises when brand_config is not provided for an encrypted brand skill" do
       with_temp_config_dir do |tmp|
-        dir = make_brand_skill_dir(tmp)
+        dir = make_brand_skill_dir(tmp)  # creates SKILL.md.enc
         expect {
           Clacky::Skill.new(dir, brand_skill: true, brand_config: nil)
-        }.to raise_error(RuntimeError, /brand_config is required/)
+        }.to raise_error(Clacky::AgentError, /brand_config is required/)
       end
     end
   end
@@ -352,6 +352,128 @@ RSpec.describe "Brand Skill system" do
         expect(loader.errors).to be_empty
       end
     end
+
+    # ── Plain (unencrypted) brand skills ──────────────────────────────────────
+
+    def setup_plain_brand_skill(brand_skills_dir, slug:, frontmatter_name: nil, description: nil)
+      dir = File.join(brand_skills_dir, slug)
+      FileUtils.mkdir_p(dir)
+      # Simulate real-world case: frontmatter name is human-readable, not a slug
+      fm_name = frontmatter_name || slug.split("-").map(&:capitalize).join(" ")
+      fm_desc = description || "Plain brand skill: #{slug}"
+      content = <<~SKILL
+        ---
+        name: #{fm_name}
+        description: "#{fm_desc}"
+        ---
+
+        Instructions for #{fm_name}.
+      SKILL
+      File.write(File.join(dir, "SKILL.md"), content)
+      dir
+    end
+
+    def write_brand_skills_json(config_dir, entries)
+      json_path = File.join(config_dir, "brand_skills", "brand_skills.json")
+      FileUtils.mkdir_p(File.dirname(json_path))
+      File.write(json_path, JSON.generate(entries))
+    end
+
+    it "loads plain brand skill with correct slug identifier from cached_metadata" do
+      # Core regression test: human-readable frontmatter name (e.g. "Antique Identifier")
+      # must NOT appear as the skill identifier — the sanitized slug from brand_skills.json
+      # must be used instead.
+      with_temp_config_dir do |tmp|
+        config           = activated_brand_config(tmp)
+        brand_skills_dir = File.join(tmp, "brand_skills")
+        setup_plain_brand_skill(brand_skills_dir, slug: "antique-identifier",
+                                                  frontmatter_name: "Antique Identifier",
+                                                  description: "Appraise antiques.")
+
+        # Write brand_skills.json with sanitized slug
+        write_brand_skills_json(tmp, {
+          "antique-identifier" => {
+            "name"        => "antique-identifier",
+            "description" => "Appraise antiques.",
+            "version"     => "1.0.0"
+          }
+        })
+
+        loader = Clacky::SkillLoader.new(working_dir: tmp, brand_config: config)
+        skill  = loader.find_by_name("antique-identifier")
+
+        expect(skill).not_to be_nil
+        expect(skill.identifier).to eq("antique-identifier"),
+          "expected slug 'antique-identifier' but got '#{skill.identifier}' — " \
+          "human-readable frontmatter name is leaking through"
+        expect(skill.warnings).to be_empty,
+          "plain brand skill with valid cached_metadata should have no warnings"
+      end
+    end
+
+    it "plain brand skill has encrypted? == false" do
+      with_temp_config_dir do |tmp|
+        config           = activated_brand_config(tmp)
+        brand_skills_dir = File.join(tmp, "brand_skills")
+        setup_plain_brand_skill(brand_skills_dir, slug: "tea-sommelier",
+                                                  frontmatter_name: "Tea Sommelier")
+
+        write_brand_skills_json(tmp, {
+          "tea-sommelier" => {
+            "name"        => "tea-sommelier",
+            "description" => "Tea expertise.",
+            "version"     => "1.0.0"
+          }
+        })
+
+        loader = Clacky::SkillLoader.new(working_dir: tmp, brand_config: config)
+        skill  = loader.find_by_name("tea-sommelier")
+
+        expect(skill).not_to be_nil
+        expect(skill.encrypted?).to be false
+      end
+    end
+
+    it "plain brand skill without cached_metadata falls back to directory slug" do
+      # When brand_skills.json has no entry for the skill, slow path runs:
+      # frontmatter name "Clacky Log Analyzer" is invalid slug → fallback to dir name
+      with_temp_config_dir do |tmp|
+        config           = activated_brand_config(tmp)
+        brand_skills_dir = File.join(tmp, "brand_skills")
+        setup_plain_brand_skill(brand_skills_dir, slug: "clacky-log-analyzer",
+                                                  frontmatter_name: "Clacky Log Analyzer")
+
+        # No brand_skills.json entry → cached_metadata will be nil
+        write_brand_skills_json(tmp, {})
+
+        loader = Clacky::SkillLoader.new(working_dir: tmp, brand_config: config)
+        skill  = loader.find_by_name("clacky-log-analyzer")
+
+        expect(skill).not_to be_nil
+        # Falls back to directory name (a valid slug), so skill is still findable
+        expect(skill.identifier).to eq("clacky-log-analyzer")
+      end
+    end
+
+    it "registers plain brand skill source as :brand" do
+      with_temp_config_dir do |tmp|
+        config           = activated_brand_config(tmp)
+        brand_skills_dir = File.join(tmp, "brand_skills")
+        setup_plain_brand_skill(brand_skills_dir, slug: "resume-screener",
+                                                  frontmatter_name: "Resume Screener")
+
+        write_brand_skills_json(tmp, {
+          "resume-screener" => {
+            "name"        => "resume-screener",
+            "description" => "Screen resumes.",
+            "version"     => "1.0.0"
+          }
+        })
+
+        loader = Clacky::SkillLoader.new(working_dir: tmp, brand_config: config)
+        expect(loader.loaded_from["resume-screener"]).to eq(:brand)
+      end
+    end
   end
 
   # ── SkillManager#build_skill_context privacy rules ──────────────────────────
@@ -365,7 +487,8 @@ RSpec.describe "Brand Skill system" do
         identifier:              "code-explorer",
         context_description:     "Explore the codebase.",
         model_invocation_allowed?: true,
-        encrypted?:              false
+        encrypted?:              false,
+        invalid?:                false
       )
     end
 
@@ -375,7 +498,8 @@ RSpec.describe "Brand Skill system" do
         identifier:              "secret-advisor",
         context_description:     "Proprietary advisory skill.",
         model_invocation_allowed?: true,
-        encrypted?:              true
+        encrypted?:              true,
+        invalid?:                false
       )
     end
 
@@ -431,7 +555,8 @@ RSpec.describe "Brand Skill system" do
         identifier: id,
         context_description: "Description for #{id}",
         model_invocation_allowed?: true,
-        encrypted?: false
+        encrypted?: false,
+        invalid?: false
       )
     end
 

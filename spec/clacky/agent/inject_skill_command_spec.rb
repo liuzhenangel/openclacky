@@ -115,6 +115,42 @@ RSpec.describe "Agent#inject_skill_command_as_assistant_message" do
       expect(injected).to be_empty
     end
   end
+
+  it "injects a not-found notice when slash command does not match any skill" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "onboard", disable_model_invocation: true, content: "Onboard.")
+
+      agent = Clacky::Agent.new(client, config, working_dir: tmpdir, ui: nil, profile: "general", session_id: Clacky::SessionManager.generate_id)
+      allow(agent).to receive(:think).and_return({ finish_reason: "stop", content: "Done", tool_calls: [] })
+      allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+      agent.run("/nonexistent-skill")
+
+      injected = agent.history.to_a.select { |m| m[:system_injected] && !m[:session_context] }
+      # Should inject an assistant notice + user shim (same structure as normal skill injection)
+      expect(injected.size).to eq(2)
+      assistant_notice = injected.find { |m| m[:role] == "assistant" }
+      expect(assistant_notice[:content]).to include("nonexistent-skill")
+      expect(assistant_notice[:content]).to include("no matching skill was found")
+    end
+  end
+
+  it "includes similar skill suggestions in the not-found notice" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "onboard", disable_model_invocation: true, content: "Onboard.")
+
+      agent = Clacky::Agent.new(client, config, working_dir: tmpdir, ui: nil, profile: "general", session_id: Clacky::SessionManager.generate_id)
+      allow(agent).to receive(:think).and_return({ finish_reason: "stop", content: "Done", tool_calls: [] })
+      allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+      # /onboar is a near-miss for /onboard
+      agent.run("/onboar")
+
+      injected = agent.history.to_a.select { |m| m[:system_injected] && !m[:session_context] }
+      assistant_notice = injected.find { |m| m[:role] == "assistant" }
+      expect(assistant_notice[:content]).to include("/onboard")
+    end
+  end
 end
 
 # ── inject_skill_as_assistant_message ─────────────────────────────

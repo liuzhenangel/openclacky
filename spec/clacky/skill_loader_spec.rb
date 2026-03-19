@@ -133,25 +133,62 @@ RSpec.describe Clacky::SkillLoader do
       expect(loader.errors).to be_empty
     end
 
-    it "collects errors from invalid skills" do
+    it "loads skill with unclosed frontmatter as plain content (with a warning, no error)" do
       skills_dir = File.join(working_dir, ".clacky", "skills")
       FileUtils.mkdir_p(skills_dir)
 
-      skill_dir = File.join(skills_dir, "invalid-skill")
+      skill_dir = File.join(skills_dir, "my-skill")
       FileUtils.mkdir_p(skill_dir)
-      # Create invalid skill with unclosed frontmatter
+      # Frontmatter block is never closed — should fall back to treating whole file as content
       File.write(File.join(skill_dir, "SKILL.md"), <<~CONTENT)
         ---
-        name: invalid-skill
-        description: Invalid skill
+        name: my-skill
+        description: A skill
         This frontmatter is not closed properly
       CONTENT
 
       loader = described_class.new(working_dir: working_dir, brand_config: nil)
       loader.load_all
 
-      expect(loader.errors).not_to be_empty
-      expect(loader.errors.first).to include("invalid-skill")
+      # No errors — skill loaded successfully
+      expect(loader.errors).to be_empty
+
+      skill = loader.all_skills.find { |s| s.identifier == "my-skill" }
+      expect(skill).not_to be_nil
+      # It falls back to treating whole file as plain content, and directory name as identifier
+      expect(skill.warnings).not_to be_empty
+      expect(skill.warnings.first).to match(/frontmatter.*plain content/i)
+    end
+
+    it "loads a plain-markdown skill (no frontmatter at all)" do
+      skills_dir = File.join(working_dir, ".clacky", "skills")
+      FileUtils.mkdir_p(skills_dir)
+
+      skill_dir = File.join(skills_dir, "plain-guide")
+      FileUtils.mkdir_p(skill_dir)
+      # Pure markdown, no YAML frontmatter
+      File.write(File.join(skill_dir, "SKILL.md"), <<~CONTENT)
+        # Plain Guide
+
+        This skill has no frontmatter at all.
+        Just plain markdown instructions.
+      CONTENT
+
+      loader = described_class.new(working_dir: working_dir, brand_config: nil)
+      loader.load_all
+
+      # No errors, no warnings
+      expect(loader.errors).to be_empty
+
+      skill = loader.all_skills.find { |s| s.identifier == "plain-guide" }
+      expect(skill).not_to be_nil
+      expect(skill.warnings).to be_empty
+      expect(skill.invalid?).to be false
+      # Directory name is used as identifier since there's no frontmatter name
+      expect(skill.identifier).to eq("plain-guide")
+      # Full markdown content is preserved
+      expect(skill.content).to include("Plain Guide")
+      expect(skill.content).to include("no frontmatter at all")
     end
   end
 
