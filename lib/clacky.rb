@@ -3,6 +3,7 @@
 require_relative "clacky/version"
 require_relative "clacky/message_format/anthropic"
 require_relative "clacky/message_format/open_ai"
+require_relative "clacky/message_format/bedrock"
 require_relative "clacky/client"
 require_relative "clacky/skill"
 require_relative "clacky/skill_loader"

@@ -325,6 +325,11 @@ module Clacky
       current_model&.dig("anthropic_format") || false
     end
 
+    # Check if current model uses AWS Bedrock API key (ABSK prefix)
+    def bedrock?
+      Clacky::MessageFormat::Bedrock.bedrock_api_key?(api_key.to_s)
+    end
+
     # Add a new model configuration
     def add_model(model:, api_key:, base_url:, anthropic_format: false, type: nil)
       @models << {

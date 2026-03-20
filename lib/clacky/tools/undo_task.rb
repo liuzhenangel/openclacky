@@ -8,7 +8,10 @@ module Clacky
       self.tool_description = "Undo the last task and restore files to previous state. " \
         "Use when user wants to go back to previous state or undo recent changes."
       self.tool_category = "time_machine"
-      self.tool_parameters = {}
+      self.tool_parameters = {
+        type: "object",
+        properties: {}
+      }
 
       def execute(agent:, **_args)
         result = agent.undo_last_task
