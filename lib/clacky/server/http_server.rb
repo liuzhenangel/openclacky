@@ -363,10 +363,14 @@ module Clacky
         name = body["name"]
         return json_response(res, 400, { error: "name is required" }) if name.nil? || name.strip.empty?
 
+        # Optional agent_profile; defaults to "general" if omitted or invalid
+        profile = body["agent_profile"].to_s.strip
+        profile = "general" if profile.empty?
+
         working_dir = default_working_dir
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(name: name, working_dir: working_dir)
+        session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: :manual)
         json_response(res, 201, { session: @registry.list.find { |s| s[:id] == session_id } })
       end
 
@@ -383,8 +387,8 @@ module Clacky
         working_dir = default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
 
-        # Restore the most recent 5 sessions for this working directory
-        sessions_data = @session_manager.latest_n_for_directory(working_dir, 5)
+        # Restore the most recent 20 sessions for this working directory
+        sessions_data = @session_manager.latest_n_for_directory(working_dir, 20)
 
         if sessions_data.any?
           sessions_data.each { |session_data| build_session_from_data(session_data) }
@@ -1439,6 +1443,8 @@ module Clacky
 
       def api_delete_session(session_id, res)
         if @registry.delete(session_id)
+          # Also remove the persisted session file from disk
+          @session_manager.delete(session_id)
           # Notify connected clients the session is gone
           broadcast(session_id, { type: "session_deleted", session_id: session_id })
           unsubscribe_all(session_id)
@@ -1721,7 +1727,7 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses request_user_feedback waits)
-      def build_session(name:, working_dir:, permission_mode: :confirm_all, profile: "general")
+      def build_session(name:, working_dir:, permission_mode: :confirm_all, profile: "general", source: :manual)
         session_id = Clacky::SessionManager.generate_id
         @registry.create(session_id: session_id)
 
@@ -1731,7 +1737,7 @@ module Clacky
         broadcaster = method(:broadcast)
         ui = WebUIController.new(session_id, broadcaster)
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
-                                  session_id: session_id)
+                                  session_id: session_id, source: source)
         agent.rename(name) unless name.nil? || name.empty?
         idle_timer = build_idle_timer(session_id, agent)
 
@@ -1761,7 +1767,11 @@ module Clacky
         config.permission_mode = permission_mode
         broadcaster = method(:broadcast)
         ui = WebUIController.new(original_id, broadcaster)
-        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: "general")
+        # Restore the agent profile from the persisted session; fall back to "general"
+        # for sessions saved before the agent_profile field was introduced.
+        profile = session_data[:agent_profile].to_s
+        profile = "general" if profile.empty?
+        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: profile)
         idle_timer = build_idle_timer(original_id, agent)
 
         @registry.with_session(original_id) do |s|
