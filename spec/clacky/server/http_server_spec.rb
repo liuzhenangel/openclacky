@@ -15,18 +15,22 @@ require "clacky/agent_config"
 module HttpServerSpecHelpers
   # Start the server in a background thread; yield a Net::HTTP instance.
   # The server is shut down after the block returns.
-  def with_server(agent_config:, client_factory: -> { double("client") })
+  def with_server(agent_config:, client_factory: -> { double("client") }, sessions_dir: nil)
+    dir = sessions_dir || Dir.mktmpdir("clacky_http_spec_sessions")
     server = Clacky::Server::HttpServer.new(
       host:           "127.0.0.1",
       port:           0,  # OS picks a free port
       agent_config:   agent_config,
-      client_factory: client_factory
+      client_factory: client_factory,
+      sessions_dir:   dir
     )
 
     # We only need the dispatcher (dispatch method), not the full WEBrick loop.
     # Expose the internal dispatcher directly for unit testing via a lightweight
     # Rack-like test harness.
     yield server
+  ensure
+    FileUtils.rm_rf(dir) unless sessions_dir  # only clean up if we created it
   end
 
   # Build a minimal fake WEBrick request object.
@@ -127,6 +131,88 @@ RSpec.describe Clacky::Server::HttpServer do
         body = parsed_body(res)
         expect(body).to have_key("sessions")
         expect(body["sessions"]).to be_an(Array)
+        expect(body).to have_key("has_more")
+      end
+    end
+
+    it "filters by source via ?source= query param" do
+      with_server(agent_config: agent_config) do |server|
+        # Create a manual session and a cron session
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "manual-s", source: "manual" }), fake_res)
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "cron-s", source: "cron" }), fake_res)
+
+        req = fake_req(method: "GET", path: "/api/sessions", query_string: "source=cron")
+        res = fake_res
+        dispatch(server, req, res)
+
+        sessions = parsed_body(res)["sessions"]
+        expect(sessions.map { |s| s["name"] }).to include("cron-s")
+        expect(sessions.map { |s| s["source"] }.uniq).to eq(["cron"])
+      end
+    end
+
+    it "excludes system sessions when no source filter given" do
+      with_server(agent_config: agent_config) do |server|
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "onboard", source: "system" }), fake_res)
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "normal" }), fake_res)
+
+        req = fake_req(method: "GET", path: "/api/sessions")
+        res = fake_res
+        dispatch(server, req, res)
+
+        names = parsed_body(res)["sessions"].map { |s| s["name"] }
+        expect(names).to include("normal")
+        expect(names).not_to include("onboard")
+      end
+    end
+
+    it "returns system sessions when source=system" do
+      with_server(agent_config: agent_config) do |server|
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "setup-s", source: "system" }), fake_res)
+
+        req = fake_req(method: "GET", path: "/api/sessions", query_string: "source=system")
+        res = fake_res
+        dispatch(server, req, res)
+
+        names = parsed_body(res)["sessions"].map { |s| s["name"] }
+        expect(names).to include("setup-s")
+      end
+    end
+
+    it "filters by profile=coding via ?profile= query param" do
+      with_server(agent_config: agent_config) do |server|
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "general-s" }), fake_res)
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "coding-s", agent_profile: "coding" }), fake_res)
+
+        req = fake_req(method: "GET", path: "/api/sessions", query_string: "profile=coding")
+        res = fake_res
+        dispatch(server, req, res)
+
+        sessions = parsed_body(res)["sessions"]
+        expect(sessions.map { |s| s["name"] }).to include("coding-s")
+        expect(sessions.map { |s| s["agent_profile"] }.uniq).to eq(["coding"])
+      end
+    end
+
+    it "respects limit and returns has_more=true when more sessions exist" do
+      with_server(agent_config: agent_config) do |server|
+        3.times { |i| dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                                body: { name: "s#{i}" }), fake_res) }
+
+        req = fake_req(method: "GET", path: "/api/sessions", query_string: "limit=2")
+        res = fake_res
+        dispatch(server, req, res)
+
+        body = parsed_body(res)
+        expect(body["sessions"].size).to eq(2)
+        expect(body["has_more"]).to be true
       end
     end
   end
@@ -145,6 +231,52 @@ RSpec.describe Clacky::Server::HttpServer do
         body = parsed_body(res)
         expect(body["session"]).to include("name" => "my-session")
         expect(body["session"]["id"]).not_to be_nil
+      end
+    end
+
+    it "defaults source to manual" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/sessions", body: { name: "s" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(parsed_body(res)["session"]["source"]).to eq("manual")
+      end
+    end
+
+    it "accepts source: system and sets it on the session" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/sessions",
+                       body: { name: "onboard", source: "system" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(201)
+        expect(parsed_body(res)["session"]["source"]).to eq("system")
+      end
+    end
+
+    it "ignores unknown source values and falls back to manual" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/sessions",
+                       body: { name: "s", source: "bogus" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(201)
+        expect(parsed_body(res)["session"]["source"]).to eq("manual")
+      end
+    end
+
+    it "accepts agent_profile: coding" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/sessions",
+                       body: { name: "code-s", agent_profile: "coding" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(201)
+        expect(parsed_body(res)["session"]["agent_profile"]).to eq("coding")
       end
     end
 

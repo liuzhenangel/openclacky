@@ -358,14 +358,15 @@ module Clacky
       # ── REST API ──────────────────────────────────────────────────────────────
 
       def api_list_sessions(req, res)
-        query    = URI.decode_www_form(req.query_string.to_s).to_h
-        limit    = [query["limit"].to_i.then { |n| n > 0 ? n : 10 }, 50].min
-        before   = query["before"].to_s.strip.then { |v| v.empty? ? nil : v }
-        source   = query["source"].to_s.strip.then { |v| v.empty? ? nil : v }
+        query   = URI.decode_www_form(req.query_string.to_s).to_h
+        limit   = [query["limit"].to_i.then { |n| n > 0 ? n : 10 }, 50].min
+        before  = query["before"].to_s.strip.then { |v| v.empty? ? nil : v }
+        source  = query["source"].to_s.strip.then { |v| v.empty? ? nil : v }
+        profile = query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         # Fetch one extra to detect has_more without a separate count query
-        sessions  = @registry.list(limit: limit + 1, before: before, source: source)
-        has_more  = sessions.size > limit
-        sessions  = sessions.first(limit)
+        sessions = @registry.list(limit: limit + 1, before: before, source: source, profile: profile)
+        has_more = sessions.size > limit
+        sessions = sessions.first(limit)
         json_response(res, 200, { sessions: sessions, has_more: has_more })
       end
 
@@ -378,10 +379,15 @@ module Clacky
         profile = body["agent_profile"].to_s.strip
         profile = "general" if profile.empty?
 
+        # Optional source; defaults to :manual. Accept "system" for skill-launched sessions
+        # (e.g. /onboard, /browser-setup, /channel-setup).
+        raw_source = body["source"].to_s.strip
+        source = %w[manual cron channel system].include?(raw_source) ? raw_source.to_sym : :manual
+
         working_dir = default_working_dir
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: :manual)
+        session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: source)
         json_response(res, 201, { session: @registry.session_summary(session_id) })
       end
 
@@ -1555,15 +1561,23 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
-          # Initial load: 5 per source so all tabs get their first page.
-          # has_more is sent per-source so the frontend can show independent load-more buttons.
-          sources   = %w[manual cron channel coding]
-          by_source = sources.each_with_object({}) do |src, h|
-            page = @registry.list(limit: 6, source: src)  # +1 to detect has_more
-            h[src] = { sessions: page.first(5), has_more: page.size > 5 }
+          # Initial load: 5 per bucket so all tabs/sections get their first page.
+          # General area tabs: manual / cron / channel / system — filtered by source, profile=general (default).
+          # Coding section: profile=coding — source is irrelevant (no source filter).
+          # has_more_by_source drives independent load-more buttons on the frontend.
+          buckets = {
+            "manual"  => { source: "manual" },
+            "cron"    => { source: "cron" },
+            "channel" => { source: "channel" },
+            "system"  => { source: "system" },
+            "coding"  => { profile: "coding" },
+          }
+          by_bucket = buckets.each_with_object({}) do |(key, params), h|
+            page = @registry.list(limit: 6, **params)  # +1 to detect has_more
+            h[key] = { sessions: page.first(5), has_more: page.size > 5 }
           end
-          all_sessions = by_source.values.flat_map { |v| v[:sessions] }
-          has_more_map = by_source.transform_values { |v| v[:has_more] }
+          all_sessions = by_bucket.values.flat_map { |v| v[:sessions] }
+          has_more_map = by_bucket.transform_values { |v| v[:has_more] }
           conn.send_json(type: "session_list", sessions: all_sessions, has_more_by_source: has_more_map)
 
         when "run_task"
@@ -1766,6 +1780,10 @@ module Clacky
           s[:ui]         = ui
           s[:idle_timer] = idle_timer
         end
+
+        # Persist an initial snapshot so the session is immediately visible in registry.list
+        # (which reads from disk). Without this, new sessions only appear after their first task.
+        @session_manager.save(agent.to_session_data)
 
         session_id
       end

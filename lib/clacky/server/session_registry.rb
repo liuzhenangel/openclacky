@@ -16,7 +16,8 @@ module Clacky
     #
     # Thread safety: all public methods are protected by a Mutex.
     class SessionRegistry
-      SESSION_TIMEOUT = 24 * 60 * 60 # 24 hours of inactivity before cleanup
+      SESSION_TIMEOUT    = 24 * 60 * 60 # 24 hours of inactivity before cleanup
+      SYSTEM_SESSION_TTL = 24 * 60 * 60 # system sessions visible for 1 day only
 
       # session_manager: Clacky::SessionManager instance
       # session_restorer: callable(session_data) → session_id — builds agent + wires into registry
@@ -101,40 +102,52 @@ module Clacky
 
       # Return a session list from disk enriched with live registry status.
       # Sorted by created_at descending (newest first).
-      # limit:  max sessions to return
-      # before: ISO8601 cursor (created_at < before)
-      # source: filter by source type ("manual"|"cron"|"channel"). nil = no filter.
-      #         For coding sessions, filter by agent_profile instead ("coding").
-      def list(limit: nil, before: nil, source: nil)
+      #
+      # Parameters (all optional, independent):
+      #   source:  "manual"|"cron"|"channel"|"system"|nil
+      #            nil = all sources except "system" (system is excluded by default)
+      #            "system" = only system sessions created within the last 24h
+      #   profile: "general"|"coding"|nil
+      #            nil = no agent_profile filter
+      #   limit:   max sessions to return
+      #   before:  ISO8601 cursor — only sessions with created_at < before
+      #
+      # source and profile are orthogonal — either can be nil independently.
+      def list(limit: nil, before: nil, source: nil, profile: nil)
         return [] unless @session_manager
 
-        # Live status map from registry
         live = @mutex.synchronize do
           @sessions.transform_values { |s| { status: s[:status], error: s[:error] } }
         end
 
         all = @session_manager.all_sessions  # already sorted newest-first
 
-        # Filter by source / agent_profile
-        if source == "coding"
-          all = all.select { |s| s[:agent_profile].to_s == "coding" }
+        # ── source filter ────────────────────────────────────────────────────
+        if source == "system"
+          cutoff = (Time.now - SYSTEM_SESSION_TTL).iso8601
+          all = all.select { |s| s_source(s) == "system" && (s[:created_at] || "") >= cutoff }
         elsif source
-          all = all.reject { |s| s[:agent_profile].to_s == "coding" }
-                   .select { |s| (s[:source] || "manual").to_s == source }
+          all = all.select { |s| s_source(s) == source }
+        else
+          # default: exclude system sessions
+          all = all.reject { |s| s_source(s) == "system" }
         end
+
+        # ── profile filter ───────────────────────────────────────────────────
+        all = all.select { |s| (s[:agent_profile] || "general").to_s == profile } if profile
 
         all = all.select { |s| (s[:created_at] || "") < before } if before
         all = all.first(limit) if limit
 
         all.map do |s|
-          id     = s[:session_id]
-          ls     = live[id]
+          id = s[:session_id]
+          ls = live[id]
           {
             id:            id,
             name:          s[:name] || "",
             status:        ls ? ls[:status].to_s : "idle",
             error:         ls ? ls[:error] : nil,
-            source:        (s[:source] || "manual").to_s,
+            source:        s_source(s),
             agent_profile: (s[:agent_profile] || "general").to_s,
             working_dir:   s[:working_dir],
             created_at:    s[:created_at],
@@ -145,19 +158,14 @@ module Clacky
         end
       end
 
-      # Count sessions on disk, optionally filtered by source (same semantics as list).
-      def total_count(source: nil)
-        return @sessions.size unless @session_manager
-        all = @session_manager.all_sessions
-        if source == "coding"
-          all.count { |s| s[:agent_profile].to_s == "coding" }
-        elsif source
-          all.reject { |s| s[:agent_profile].to_s == "coding" }
-             .count  { |s| (s[:source] || "manual").to_s == source }
-        else
-          all.size
-        end
+      private
+
+      # Normalize source field from a disk session hash.
+      def s_source(s)
+        (s[:source] || "manual").to_s
       end
+
+      public
 
       # Delete a session from registry (and interrupt its thread).
       def delete(session_id)
