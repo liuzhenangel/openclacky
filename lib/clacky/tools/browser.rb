@@ -165,10 +165,12 @@ module Clacky
       # Browser tool delegates all mcp_call / lifecycle operations to it via Clacky.browser_manager.
 
       def execute(action:, profile: nil, working_dir: nil, **opts)
-        allowed = action.to_s == "status" ||
-                  (action.to_s == "act" && (opts[:kind] || opts["kind"]).to_s == "evaluate") ||
-                  browser_configured?
-        return browser_not_configured_error unless allowed
+        bypass = action.to_s == "status" ||
+                 (action.to_s == "act" && (opts[:kind] || opts["kind"]).to_s == "evaluate")
+        unless bypass
+          return browser_not_setup_error    unless File.exist?(BROWSER_CONFIG_PATH)
+          return browser_disabled_error     unless browser_enabled?
+        end
         execute_user_browser(action, opts)
       rescue StandardError => e
         { error: "Browser error: #{e.message}\n\n#{BROWSER_RECONNECT_HINT}" }
@@ -243,20 +245,31 @@ module Clacky
         If yes, invoke the browser-setup skill with subcommand "doctor" to diagnose and fix.
       HINT
 
-      # Returns true if ~/.clacky/browser.yml exists and marks the browser as configured.
-      private def browser_configured?
-        return false unless File.exist?(BROWSER_CONFIG_PATH)
+      # Returns true if ~/.clacky/browser.yml exists and enabled: true.
+      # Returns true if browser.yml exists and enabled: true.
+      private def browser_enabled?
         config = YAML.safe_load(File.read(BROWSER_CONFIG_PATH), permitted_classes: [Date, Time, Symbol])
-        config.is_a?(Hash) && config["configured"] == true
+        config.is_a?(Hash) && config["enabled"] == true
       end
 
-      # Error returned when browser.yml is missing or not configured.
-      private def browser_not_configured_error
+      # Error when browser.yml doesn't exist — never been set up.
+      private def browser_not_setup_error
         {
           error: <<~MSG
-            The browser connection is not fully configured. This tool call has been rejected to protect user experience.
+            The browser tool is not configured. This tool call has been rejected to protect user experience.
 
-            Ask the user if they'd like to configure the browser, then invoke the browser-setup skill to guide them through the setup. Retry this tool call after setup is complete.
+            Ask the user if they'd like to set up the browser, then invoke the browser-setup skill to guide them through the setup. Retry this tool call after setup is complete.
+          MSG
+        }
+      end
+
+      # Error when browser.yml exists but enabled: false — user explicitly disabled it.
+      private def browser_disabled_error
+        {
+          error: <<~MSG
+            The browser tool is disabled by the user. This tool call has been rejected.
+
+            Inform the user that they have disabled the browser tool. They can re-enable it from settings or by running "/browser-setup".
           MSG
         }
       end

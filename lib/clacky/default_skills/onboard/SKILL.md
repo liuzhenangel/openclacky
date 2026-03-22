@@ -227,7 +227,7 @@ Then ask with `request_user_feedback`:
 If `lang == "zh"`:
 ```json
 {
-  "question": "需要现在配置浏览器吗？（之后随时可以运行 `browser setup`）",
+  "question": "需要现在配置浏览器吗？（之后随时可以运行 `/browser-setup`）",
   "options": ["现在配置", "跳过"]
 }
 ```
@@ -235,7 +235,7 @@ If `lang == "zh"`:
 Otherwise:
 ```json
 {
-  "question": "Want to set up browser automation now? (You can always run `browser setup` later.)",
+  "question": "Want to set up browser automation now? (You can always run `/browser-setup` later.)",
   "options": ["Set it up now", "Skip"]
 }
 ```

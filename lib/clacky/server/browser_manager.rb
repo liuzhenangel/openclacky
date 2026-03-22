@@ -6,16 +6,23 @@ module Clacky
   # BrowserManager owns the chrome-devtools-mcp daemon lifecycle.
   #
   # It mirrors the ChannelManager pattern:
-  #   - start   → read browser.yml; if configured, pre-warm the MCP daemon
+  #   - start   → read browser.yml; if enabled, pre-warm the MCP daemon
   #   - stop    → kill the daemon
   #   - reload  → stop + re-read yml + start (called after browser-setup writes yml)
-  #   - status  → { configured: bool, daemon_running: bool, chrome_version: String|nil }
+  #   - status  → { enabled: bool, daemon_running: bool, chrome_version: String|nil }
+  #   - toggle  → flip enabled in browser.yml and reload
+  #
+  # browser.yml schema:
+  #   enabled: true/false   — whether the browser tool is active
+  #   chrome_version: "146" — detected Chrome version (set by browser-setup skill)
+  #   configured_at: date   — when setup was last run
   #
   # Browser tool (browser.rb) delegates daemon access here instead of using
   # class-level @@mcp_process variables directly.  BrowserManager holds the
   # single mutable state; the mutex lives here too.
   class BrowserManager
-    BROWSER_CONFIG_PATH = File.expand_path("~/.clacky/browser.yml").freeze
+    BROWSER_CONFIG_PATH   = File.expand_path("~/.clacky/browser.yml").freeze
+    DAEMON_RESTART_COOLDOWN = 600 # seconds — don't restart daemon more than once per 10 minutes
 
     class << self
       def instance
@@ -23,31 +30,29 @@ module Clacky
       end
     end
 
-    DAEMON_RESTART_COOLDOWN = 600 # seconds — don't restart daemon more than once per 10 minutes
-
     def initialize
-      @process          = nil   # { stdin:, stdout:, pid:, wait_thr: }
-      @mutex            = Mutex.new
-      @call_id          = 2     # 1 reserved for MCP initialize handshake
-      @config           = {}    # last successfully read browser.yml content
-      @last_restart_at  = nil   # Time of last daemon restart (cooldown guard)
+      @process         = nil   # { stdin:, stdout:, pid:, wait_thr: }
+      @mutex           = Mutex.new
+      @call_id         = 2     # 1 reserved for MCP initialize handshake
+      @config          = {}    # last successfully read browser.yml content
+      @last_restart_at = nil   # Time of last daemon restart (cooldown guard)
     end
 
     # ---------------------------------------------------------------------------
     # Lifecycle
     # ---------------------------------------------------------------------------
 
-    # Start the daemon if browser.yml marks the browser as configured.
+    # Start the daemon if browser.yml marks the browser as enabled.
     # Non-blocking — returns immediately (daemon spawn takes ~200ms in background).
     def start
       cfg = load_config
-      unless cfg["configured"] == true
-        Clacky::Logger.info("[BrowserManager] Not configured — skipping daemon start")
+      unless cfg["enabled"] == true
+        Clacky::Logger.info("[BrowserManager] Not enabled — skipping daemon start")
         return
       end
 
       @config = cfg
-      Clacky::Logger.info("[BrowserManager] Browser configured, pre-warming MCP daemon...")
+      Clacky::Logger.info("[BrowserManager] Browser enabled, pre-warming MCP daemon...")
       Thread.new do
         Thread.current.name = "browser-manager-start"
         @mutex.synchronize { ensure_process! }
@@ -62,39 +67,55 @@ module Clacky
       Clacky::Logger.info("[BrowserManager] Daemon stopped")
     end
 
-    # Hot-reload: stop existing daemon, re-read yml, restart if configured.
+    # Hot-reload: stop existing daemon, re-read yml, restart if enabled.
     # Called by HttpServer after browser-setup writes a new browser.yml.
-    def reload
+    # @param force [Boolean] skip cooldown check (use when triggered by explicit user action)
+    def reload(force: false)
       Clacky::Logger.info("[BrowserManager] Reloading...")
       @mutex.synchronize { kill_process! }
 
       cfg = load_config
       @config = cfg
 
-      if cfg["configured"] == true
-        Clacky::Logger.info("[BrowserManager] Configuration found, restarting daemon")
+      if cfg["enabled"] == true
+        Clacky::Logger.info("[BrowserManager] Browser enabled, restarting daemon")
         Thread.new do
           Thread.current.name = "browser-manager-reload"
-          @mutex.synchronize { ensure_process! }
+          @mutex.synchronize { ensure_process!(force: force) }
         rescue StandardError => e
           Clacky::Logger.warn("[BrowserManager] Reload start failed: #{e.message}")
         end
       else
-        Clacky::Logger.info("[BrowserManager] Not configured after reload — daemon not started")
+        Clacky::Logger.info("[BrowserManager] Browser disabled after reload — daemon not started")
       end
     end
 
     # Returns a status hash with real daemon liveness.
-    # @return [Hash] { configured: bool, daemon_running: bool, chrome_version: String|nil }
+    # @return [Hash] { enabled: bool, daemon_running: bool, chrome_version: String|nil }
     def status
-      cfg = load_config
-      configured = cfg["configured"] == true
-      running    = @mutex.synchronize { process_alive? }
+      cfg     = load_config
+      enabled = cfg["enabled"] == true
+      running = @mutex.synchronize { process_alive? }
       {
-        configured:     configured,
+        enabled:        enabled,
         daemon_running: running,
         chrome_version: cfg["chrome_version"]
       }
+    end
+
+    # Toggle the browser tool on/off by flipping `enabled` in browser.yml.
+    # Raises if browser.yml doesn't exist (not yet set up).
+    # @return [Boolean] new enabled state
+    def toggle
+      raise "Browser not configured. Run /browser-setup first." unless File.exist?(BROWSER_CONFIG_PATH)
+
+      cfg         = load_config
+      new_enabled = !(cfg["enabled"] == true)
+      cfg["enabled"] = new_enabled
+      File.write(BROWSER_CONFIG_PATH, cfg.to_yaml)
+      @config = cfg
+      reload(force: true)  # user-initiated — skip cooldown
+      new_enabled
     end
 
     # ---------------------------------------------------------------------------
@@ -158,13 +179,16 @@ module Clacky
     end
 
     # Must be called inside @mutex
-    def ensure_process!
+    # @param force [Boolean] skip cooldown check (user-initiated restarts)
+    def ensure_process!(force: false)
       return if process_alive?
 
-      if @last_restart_at && (Time.now - @last_restart_at) < DAEMON_RESTART_COOLDOWN
-        remaining = (DAEMON_RESTART_COOLDOWN - (Time.now - @last_restart_at)).ceil
-        raise "Chrome MCP daemon restart is on cooldown (#{remaining}s remaining). " \
-              "If Chrome is unresponsive, please restart Chrome and try again."
+      unless force
+        if @last_restart_at && (Time.now - @last_restart_at) < DAEMON_RESTART_COOLDOWN
+          remaining = (DAEMON_RESTART_COOLDOWN - (Time.now - @last_restart_at)).ceil
+          raise "Chrome MCP daemon restart is on cooldown (#{remaining}s remaining). " \
+                "If Chrome is unresponsive, please restart Chrome and try again."
+        end
       end
 
       cmd = Clacky::Tools::Browser.build_mcp_command

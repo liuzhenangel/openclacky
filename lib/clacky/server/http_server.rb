@@ -293,6 +293,7 @@ module Clacky
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
         when ["GET",    "/api/browser/status"]    then api_browser_status(res)
         when ["POST",   "/api/browser/reload"]    then api_browser_reload(res)
+        when ["POST",   "/api/browser/toggle"]    then api_browser_toggle(res)
         when ["POST",   "/api/onboard/complete"]  then api_onboard_complete(req, res)
         when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(req, res)
         when ["GET",    "/api/store/skills"]          then api_store_skills(res)
@@ -438,6 +439,14 @@ module Clacky
       def api_browser_reload(res)
         @browser_manager.reload
         json_response(res, 200, { ok: true })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # POST /api/browser/toggle
+      def api_browser_toggle(res)
+        enabled = @browser_manager.toggle
+        json_response(res, 200, { ok: true, enabled: enabled })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end

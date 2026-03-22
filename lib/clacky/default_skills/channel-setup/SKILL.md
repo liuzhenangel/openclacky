@@ -71,16 +71,9 @@ Ask:
 
 #### Step 1 — Try automated setup (script)
 
-Find the setup script:
+Run the setup script (full path is available in the supporting files list above):
 ```bash
-SKILL_DIR=$(ruby -e "puts Gem.find_files('clacky/default_skills/channel-setup/feishu_setup.rb').first" 2>/dev/null)
-# Fallback: search common paths
-[ -z "$SKILL_DIR" ] && SKILL_DIR=$(find ~/.gem /usr/local/lib -name "feishu_setup.rb" 2>/dev/null | head -1)
-```
-
-Run it:
-```bash
-ruby "$SKILL_DIR"
+ruby "$SKILL_DIR/feishu_setup.rb"
 ```
 
 **If exit code is 0:**
@@ -143,7 +136,7 @@ Only reach here if the automated script failed.
 
 10. **Apply config and establish connection** — Run:
     ```bash
-    curl -X POST http://localhost:7070/api/channels/feishu \
+    curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
       -H "Content-Type: application/json" \
       -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
     ```
@@ -182,7 +175,7 @@ Check for `"code":0`. On success: "✅ Feishu channel configured."
 6. Guide the user: "Click Save. Enter name (e.g. Open Clacky) and description. Click Confirm. Click Save again. Reply done." Wait for "done".
 7. Parse credentials. Trim whitespace. Ensure bot_id (starts with `aib`) and secret are not swapped. Run:
    ```bash
-   curl -X POST http://localhost:7070/api/channels/wecom \
+   curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/wecom \
      -H "Content-Type: application/json" \
      -d '{"bot_id":"<BOT_ID>","secret":"<SECRET>"}'
    ```
@@ -195,22 +188,12 @@ On success: "✅ WeCom channel configured. WeCom client → Contacts → Smart B
 
 Weixin uses a QR code login — no app_id/app_secret needed. The token from the QR scan is saved directly in `channels.yml`.
 
-#### Step 1 — Find the setup script
-
-```bash
-WEIXIN_SETUP=$(ruby -e "puts Gem.find_files('clacky/default_skills/channel-setup/weixin_setup.rb').first" 2>/dev/null)
-[ -z "$WEIXIN_SETUP" ] && WEIXIN_SETUP=$(find ~/.gem /usr/local/lib -name "weixin_setup.rb" 2>/dev/null | head -1)
-echo "Script: $WEIXIN_SETUP"
-```
-
-If not found, fail with: "Could not find weixin_setup.rb. Please reinstall the clacky gem."
-
-#### Step 2 — Fetch QR code and open in browser
+#### Step 1 — Fetch QR code and open in browser
 
 Run the script in `--fetch-qr` mode to get the QR URL without blocking:
 
 ```bash
-QR_JSON=$(CLACKY_SERVER_HOST=127.0.0.1 CLACKY_SERVER_PORT=7070 ruby "$WEIXIN_SETUP" --fetch-qr 2>/dev/null)
+QR_JSON=$(ruby "$SKILL_DIR/weixin_setup.rb" --fetch-qr 2>/dev/null)
 echo "$QR_JSON"
 ```
 
@@ -226,7 +209,7 @@ Tell the user:
 **Open the QR code page in browser** — build a local URL and navigate to it:
 
 ```
-http://127.0.0.1:7070/weixin-qr.html?url=<URL-encoded qrcode_url>
+http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/weixin-qr.html?url=<URL-encoded qrcode_url>
 ```
 
 Use the browser tool to open this URL. The page renders a proper scannable QR code image using qrcode.js.
@@ -237,7 +220,7 @@ Do NOT open the raw `qrcode_url` directly — that page shows "请使用微信�
 Once the browser shows the QR page, immediately run the polling script in the background:
 
 ```bash
-CLACKY_SERVER_HOST=127.0.0.1 CLACKY_SERVER_PORT=7070 ruby "$WEIXIN_SETUP" --qrcode-id "$QRCODE_ID"
+ruby "$SKILL_DIR/weixin_setup.rb" --qrcode-id "$QRCODE_ID"
 ```
 
 Where `$QRCODE_ID` is the `qrcode_id` from Step 2's JSON output.
