@@ -726,8 +726,17 @@ module Clacky
         argv   = @restart_argv
         Thread.new do
           sleep 0.5  # Let WEBrick flush the HTTP response
-          Clacky::Logger.info("[Restart] exec: #{RbConfig.ruby} #{script} #{argv.join(' ')}")
-          exec(RbConfig.ruby, script, *argv)
+
+          # Use login shell to re-exec so rbenv/mise shims resolve the newly installed gem version.
+          # Direct `exec(RbConfig.ruby, script, *argv)` would reuse the old Ruby interpreter path
+          # and miss gem updates installed under a different Ruby version managed by rbenv/mise.
+          shell      = ENV["SHELL"].to_s
+          shell      = "/bin/bash" if shell.empty?
+          cmd_parts  = [Shellwords.escape(script), *argv.map { |a| Shellwords.escape(a) }]
+          cmd_string = cmd_parts.join(" ")
+
+          Clacky::Logger.info("[Restart] exec: #{shell} -l -c #{cmd_string}")
+          exec(shell, "-l", "-c", cmd_string)
         end
       end
 

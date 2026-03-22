@@ -18,7 +18,7 @@ RSpec.describe "CLI --message / -i non-interactive mode" do
     cli.send(:run_non_interactive, agent, message, images, agent_config, session_manager)
   end
 
-  let(:agent) { instance_double(Clacky::Agent, to_session_data: {}) }
+  let(:agent) { instance_double(Clacky::Agent, to_session_data: {}, history: [], rename: nil) }
   let(:agent_config) { Clacky::AgentConfig.new }
   let(:session_manager) { nil }
 

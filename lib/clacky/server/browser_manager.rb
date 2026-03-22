@@ -23,11 +23,14 @@ module Clacky
       end
     end
 
+    DAEMON_RESTART_COOLDOWN = 600 # seconds — don't restart daemon more than once per 10 minutes
+
     def initialize
-      @process  = nil   # { stdin:, stdout:, pid:, wait_thr: }
-      @mutex    = Mutex.new
-      @call_id  = 2     # 1 reserved for MCP initialize handshake
-      @config   = {}    # last successfully read browser.yml content
+      @process          = nil   # { stdin:, stdout:, pid:, wait_thr: }
+      @mutex            = Mutex.new
+      @call_id          = 2     # 1 reserved for MCP initialize handshake
+      @config           = {}    # last successfully read browser.yml content
+      @last_restart_at  = nil   # Time of last daemon restart (cooldown guard)
     end
 
     # ---------------------------------------------------------------------------
@@ -158,6 +161,12 @@ module Clacky
     def ensure_process!
       return if process_alive?
 
+      if @last_restart_at && (Time.now - @last_restart_at) < DAEMON_RESTART_COOLDOWN
+        remaining = (DAEMON_RESTART_COOLDOWN - (Time.now - @last_restart_at)).ceil
+        raise "Chrome MCP daemon restart is on cooldown (#{remaining}s remaining). " \
+              "If Chrome is unresponsive, please restart Chrome and try again."
+      end
+
       cmd = Clacky::Tools::Browser.build_mcp_command
       stdin, stdout, stderr_io, wait_thr = Open3.popen3(*cmd)
       Thread.new { stderr_io.read rescue nil }
@@ -188,8 +197,9 @@ module Clacky
       stdin.write(notify_msg + "\n")
       stdin.flush
 
-      @process = { stdin: stdin, stdout: stdout, pid: wait_thr.pid, wait_thr: wait_thr }
-      @call_id = 2
+      @process         = { stdin: stdin, stdout: stdout, pid: wait_thr.pid, wait_thr: wait_thr }
+      @call_id         = 2
+      @last_restart_at = Time.now  # record only on successful start
       Clacky::Logger.info("[BrowserManager] MCP daemon started (pid=#{wait_thr.pid})")
     end
 

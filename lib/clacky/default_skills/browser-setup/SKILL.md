@@ -88,7 +88,7 @@ Ask the user to open Chrome and enable remote debugging:
 >
 > 2. Go to: `chrome://inspect/#remote-debugging`
 >
-> 3. Check "Discover network targets"
+> 3. Click **"Allow remote debugging for this browser instance"**
 >
 > Let me know when you're done and I'll verify the connection.
 
@@ -105,8 +105,8 @@ If this fails (connection error), let the user know:
 
 > Could not connect to Chrome. Please check:
 > - Chrome is open
-> - "Discover network targets" is checked
-> - You clicked "Allow" on any Chrome permission dialog
+> - You visited `chrome://inspect/#remote-debugging`
+> - You clicked **"Allow remote debugging for this browser instance"**
 >
 > Retrying...
 
@@ -197,6 +197,9 @@ Steps:
 2. Run `node --version` via Bash
 3. Run `chrome-devtools-mcp --version` via Bash; if missing, suggest `npm install -g chrome-devtools-mcp`
 4. Run `browser(action="status")`
+   - If failed, run `lsof -i :9222 | grep LISTEN` to distinguish the cause:
+     - **No output** (port not listening) → Chrome is not running or remote debugging not enabled. Fix: open Chrome, go to `chrome://inspect/#remote-debugging`, click **"Allow remote debugging for this browser instance"**.
+     - **Has output** (port listening but MCP can't connect) → CDP connection became unstable after long Chrome session. Fix: restart Chrome.
 5. If step 4 succeeded, run evaluate to get Chrome version
 
 Report all results together at the end.

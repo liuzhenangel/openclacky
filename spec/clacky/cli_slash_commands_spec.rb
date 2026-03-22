@@ -97,7 +97,8 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
         working_dir: working_dir,
         ui: ui_controller,
         profile: agent_profile.name,
-        session_id: "fresh-session-id"
+        session_id: "fresh-session-id",
+        source: :manual
       ).and_return(new_agent)
       send_input("/clear")
     end

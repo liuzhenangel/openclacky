@@ -152,8 +152,8 @@ module Clacky
       MIN_CHROME_MAJOR = 146
 
       # MCP handshake/call timeout (seconds)
-      MCP_HANDSHAKE_TIMEOUT = 12
-      MCP_CALL_TIMEOUT      = 30
+      MCP_HANDSHAKE_TIMEOUT = 5
+      MCP_CALL_TIMEOUT      = 10
 
       # Minimum Node.js major version required by chrome-devtools-mcp
       MIN_NODE_MAJOR = 20
@@ -237,6 +237,7 @@ module Clacky
         1. Chrome is not running — ask the user to open Chrome.
         2. Remote Debugging is disabled — Chrome must be launched with --remote-debugging-port=9222.
         3. The browser MCP daemon crashed or lost the connection — it may recover on the next action.
+        4. Chrome has been running for a long time and the CDP connection became unstable — restart Chrome to fix.
 
         Inform the user of these possible causes and ask if they'd like to run a diagnosis.
         If yes, invoke the browser-setup skill with subcommand "doctor" to diagnose and fix.
