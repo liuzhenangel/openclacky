@@ -186,8 +186,8 @@ module Clacky
         # source: :channel prevents the message from being echoed back to the IM channel.
         web_ui&.show_user_message(text, source: :channel) unless text.nil? || text.empty?
 
-        # Acknowledge to the IM channel only — WebUI doesn't need a "Working..." noise.
-        adapter.send_text(event[:chat_id], "Working...")
+        # Acknowledge to the IM channel only — WebUI doesn't need a "Thinking..." noise.
+        adapter.send_text(event[:chat_id], "Thinking...")
 
         @run_agent_task.call(session_id, agent) do
           agent.run(text, files: files)
