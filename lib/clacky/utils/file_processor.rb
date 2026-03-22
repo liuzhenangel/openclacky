@@ -215,7 +215,11 @@ module Clacky
     end
 
     def self.sanitize_filename(name)
-      base = File.basename(name.to_s).gsub(/[^\w.\-]/, "_")
+      # Keep Unicode letters/digits (including CJK), ASCII word chars, dots, hyphens, spaces.
+      # Only strip characters that are unsafe on common filesystems: / \ : * ? " < > | \0
+      base = File.basename(name.to_s)
+               .gsub(/[\/\\\:\*\?"<>|\x00]/, "_")
+               .strip
       base.empty? ? "upload" : base
     end
 

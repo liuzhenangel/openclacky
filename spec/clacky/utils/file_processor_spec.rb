@@ -14,10 +14,20 @@ RSpec.describe Clacky::Utils::FileProcessor do
       expect(File.read(result[:path])).to eq("hello")
     end
 
-    it "sanitizes unsafe filename characters" do
+    it "sanitizes filesystem-unsafe characters but keeps Unicode" do
       result = described_class.save(body: "", filename: "../../../etc/passwd")
       expect(result[:name]).not_to include("/")
       expect(File.exist?(result[:path])).to be true
+    end
+
+    it "preserves Chinese characters in filename" do
+      result = described_class.save(body: "x", filename: "OpenClacky企业智能体平台.pptx")
+      expect(result[:name]).to eq("OpenClacky企业智能体平台.pptx")
+    end
+
+    it "replaces colon and question mark but keeps the rest" do
+      result = described_class.save(body: "x", filename: "report: Q1?.pdf")
+      expect(result[:name]).to eq("report_ Q1_.pdf")
     end
 
     it "two saves with same filename produce different paths" do
