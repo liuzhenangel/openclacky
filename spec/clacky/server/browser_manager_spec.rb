@@ -89,8 +89,8 @@ RSpec.describe Clacky::BrowserManager do
       end
     end
 
-    context "when configured: true" do
-      before { write_config("configured" => true, "chrome_version" => "148") }
+    context "when enabled: true" do
+      before { write_config("enabled" => true, "chrome_version" => "148") }
 
       it "spawns a background thread to pre-warm the daemon" do
         thread_spawned = false
@@ -127,8 +127,8 @@ RSpec.describe Clacky::BrowserManager do
       expect(manager.instance_variable_get(:@process)).to be_nil
     end
 
-    context "when yml is now configured: true" do
-      before { write_config("configured" => true, "chrome_version" => "148") }
+    context "when yml is now enabled: true" do
+      before { write_config("enabled" => true, "chrome_version" => "148") }
 
       it "spawns a restart thread" do
         thread_spawned = false
@@ -160,19 +160,19 @@ RSpec.describe Clacky::BrowserManager do
   # ---------------------------------------------------------------------------
   describe "#status" do
     context "when browser.yml is missing" do
-      it "returns not configured and daemon not running" do
+      it "returns not enabled and daemon not running" do
         s = manager.status
-        expect(s[:configured]).to be false
+        expect(s[:enabled]).to be false
         expect(s[:daemon_running]).to be false
         expect(s[:chrome_version]).to be_nil
       end
     end
 
-    context "when configured: true and chrome_version set" do
-      before { write_config("configured" => true, "chrome_version" => "148") }
+    context "when enabled: true and chrome_version set" do
+      before { write_config("enabled" => true, "chrome_version" => "148") }
 
-      it "reports configured: true" do
-        expect(manager.status[:configured]).to be true
+      it "reports enabled: true" do
+        expect(manager.status[:enabled]).to be true
       end
 
       it "returns the chrome_version" do
