@@ -169,6 +169,9 @@ module Clacky
       private
 
       def send_text(text)
+        text = text.to_s.gsub(/<think>[\s\S]*?<\/think>\n*/i, "").strip
+        return if text.empty?
+
         @adapter.send_text(@chat_id, text, reply_to: @message_id)
       rescue StandardError => e
         warn "[ChannelUI] send_text failed (#{@platform}/#{@chat_id}): #{e.message}"
