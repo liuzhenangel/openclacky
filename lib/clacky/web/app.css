@@ -1618,6 +1618,28 @@ body {
   margin-bottom: 2px;
 }
 
+/* meta block: encrypted badge + source directory */
+.skill-ac-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.skill-ac-enc {
+  font-size: 11px;
+  opacity: 0.5;
+  cursor: default;
+}
+
+.skill-ac-src {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
+  white-space: nowrap;
+  cursor: default;
+}
+
 /* ── Input bar ───────────────────────────────────────────────────────────── */
 #input-bar {
   padding: 13.5px 16px;

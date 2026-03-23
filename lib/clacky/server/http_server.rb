@@ -1214,10 +1214,16 @@ module Clacky
         skills = agent.skill_loader.user_invocable_skills
         skills = skills.select { |s| s.allowed_for_agent?(profile.name) } if profile
 
+        loader      = agent.skill_loader
+        loaded_from = loader.loaded_from
+
         skill_data = skills.map do |skill|
+          source_type = loaded_from[skill.identifier]
           {
             name:        skill.identifier,
-            description: skill.description || skill.context_description
+            description: skill.description || skill.context_description,
+            encrypted:   skill.encrypted?,
+            source_type: source_type
           }
         end
 
