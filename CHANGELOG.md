@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-03-23
+
+### Added
+- **Real browser automation via CDP**: the browser tool now drives a real Chromium browser using the Chrome DevTools Protocol — structured action schemas, snapshots, screenshots, and full page interaction are all supported
+- **Browser DevTools MCP integration**: the browser connects to Chrome's DevTools via MCP, enabling deeper inspection and control beyond standard WebDriver capabilities
+- **Browser manager in Web UI**: a new browser management panel lets you start, stop, restart, and monitor the connected browser session directly from the Web UI
+- **WeChat (Weixin) channel support**: the agent can now receive and reply to messages via WeChat, including sending and receiving images
+- **Feishu Docs integration**: the agent can now read and process Feishu (Lark) documents directly as context
+- **PDF preview in Web UI**: PDFs attached to a conversation now render inline in the chat interface
+- **Session source tracking**: sessions now track where they originated (Web UI, Feishu, WeCom, WeChat, CLI) and display the source in the sessions list
+- **Sessions list in Web UI**: a dedicated sessions UI shows all your recent conversations with source badges and load-more pagination
+- **Setup session type**: a special onboarding session type is available to guide new users through initial configuration
+- **Personal website skill**: a built-in skill that generates and publishes a personal profile page (linktree-style) from your user profile
+- **Sub-directory `.clackyrules` loading**: project rules files in subdirectories are now discovered and merged automatically
+- **Self-improving response parser**: the parser now repairs itself when it encounters malformed tool-call sequences, improving reliability with all models
+- **UJK format support**: the agent can now handle UJK-encoded content in file and channel inputs
+- **Browser toggle in Web UI**: a toggle in the settings sidebar lets you enable or disable browser control without restarting
+- **Logo and QR code on homepage**: the Web UI homepage now displays the product logo and a shareable QR code
+- **Clear thinking in channel**: channel messages now strip internal `<thinking>` blocks before sending the reply to the user
+
+### Fixed
+- **`invoke_skill` tool-call sequence**: skill invocations via tool call now correctly follow the expected request/response order, preventing out-of-sequence tool results
+- **URI parsing for edge cases**: fixed a crash when parsing certain malformed or unusual URIs
+- **Doc reader parsing**: fixed an issue where some document formats were not correctly parsed by the doc reader tool
+- **Zip skill location discovery**: fixed skill loading from zip files installed in non-standard locations
+- **Install script compatibility**: the install script now explicitly uses bash to avoid failures on systems where `/bin/sh` is not bash
+
+### More
+- Rename `working` → `thinking` in agent status display
+- Channel and Web UI now sync session state in real time
+- Cost usage display improvements
+
 ## [0.9.7] - 2026-03-20
 
 ### Added
