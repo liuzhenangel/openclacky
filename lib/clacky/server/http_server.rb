@@ -149,7 +149,8 @@ module Clacky
           session_manager:  @session_manager,
           session_restorer: method(:build_session_from_data)
         )
-        @ws_clients      = {}  # session_id => [WebSocketConnection, ...]
+        @ws_clients      = {}   # session_id => [WebSocketConnection, ...]
+        @all_ws_conns    = []   # every connected WS client, regardless of session subscription
         @ws_mutex        = Mutex.new
         # Version cache: { latest: "x.y.z", checked_at: Time }
         @version_cache   = nil
@@ -418,6 +419,7 @@ module Clacky
         FileUtils.mkdir_p(working_dir)
 
         session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: source)
+        broadcast_session_update(session_id)
         json_response(res, 201, { session: @registry.session_summary(session_id) })
       end
 
@@ -743,24 +745,35 @@ module Clacky
 
         Thread.new do
           begin
+            Clacky::Logger.info("[Upgrade] Starting: gem update openclacky --no-document")
             broadcast_all(type: "upgrade_log", line: "Starting upgrade: gem update openclacky --no-document\n")
 
             shell  = Clacky::Tools::Shell.new
+            Clacky::Logger.info("[Upgrade] Calling shell.execute...")
             result = shell.execute(command: "gem update openclacky --no-document",
                                    soft_timeout: 300, hard_timeout: 600)
+            Clacky::Logger.info("[Upgrade] shell.execute returned: exit_code=#{result[:exit_code]}")
+            Clacky::Logger.info("[Upgrade] stdout=#{result[:stdout].to_s.slice(0, 500)}")
+            Clacky::Logger.info("[Upgrade] stderr=#{result[:stderr].to_s.slice(0, 500)}")
+
             output  = [result[:stdout], result[:stderr]].join
             success = result[:exit_code] == 0
 
+            clients_count = @ws_mutex.synchronize { @all_ws_conns.size }
+            Clacky::Logger.info("[Upgrade] Broadcasting output to #{clients_count} WS client(s)")
             broadcast_all(type: "upgrade_log", line: output)
 
             if success
+              Clacky::Logger.info("[Upgrade] Success!")
               broadcast_all(type: "upgrade_log", line: "\n✓ Upgrade successful! Please restart the server to apply the new version.\n")
               broadcast_all(type: "upgrade_complete", success: true)
             else
+              Clacky::Logger.warn("[Upgrade] Failed. exit_code=#{result[:exit_code]}")
               broadcast_all(type: "upgrade_log", line: "\n✗ Upgrade failed. Please try manually: gem update openclacky\n")
               broadcast_all(type: "upgrade_complete", success: false)
             end
           rescue StandardError => e
+            Clacky::Logger.error("[Upgrade] Exception: #{e.class}: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
             broadcast_all(type: "upgrade_log", line: "\n✗ Error during upgrade: #{e.message}\n")
             broadcast_all(type: "upgrade_complete", success: false)
           end
@@ -1607,6 +1620,7 @@ module Clacky
       end
 
       def on_ws_open(conn)
+        @ws_mutex.synchronize { @all_ws_conns << conn }
         # Client will send a "subscribe" message to bind to a session
       end
 
@@ -1680,6 +1694,7 @@ module Clacky
       end
 
       def on_ws_close(conn)
+        @ws_mutex.synchronize { @all_ws_conns.delete(conn) }
         unsubscribe(conn)
       end
 
@@ -1814,9 +1829,9 @@ module Clacky
         clients.each { |conn| conn.send_json(event) rescue nil }
       end
 
-      # Broadcast an event to every connected client.
+      # Broadcast an event to every connected client (regardless of session subscription).
       def broadcast_all(event)
-        clients = @ws_mutex.synchronize { @ws_clients.values.flatten.uniq }
+        clients = @ws_mutex.synchronize { @all_ws_conns.dup }
         clients.each { |conn| conn.send_json(event) rescue nil }
       end
 
