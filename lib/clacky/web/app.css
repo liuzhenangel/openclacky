@@ -4317,20 +4317,39 @@ body.setup-mode[data-theme="dark"] {
 /* ── Version badge (inline in Settings row, right-aligned) ──────────────── */
 
 /* Settings button stretches to fill width; version badge pushes to the right */
-#btn-settings {
-  position: relative;
+/* Settings row: btn-settings + version badge side by side */
+.sidebar-nav-row {
+  display: flex;
+  align-items: stretch;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: background .15s;
+}
+.sidebar-nav-row:hover {
+  background: var(--color-bg-hover);
+}
+.sidebar-nav-row #btn-settings {
+  flex: 1;
+  border-radius: 0;
+  min-width: 0;
+  background: transparent !important;  /* row handles the bg */
+}
+.sidebar-nav-row:hover #btn-settings {
+  color: var(--color-text-primary);
+}
+.sidebar-nav-row #btn-settings.active {
+  color: var(--color-accent-primary);
 }
 
 .version-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;        /* push to right inside flex btn-settings */
-  padding: 2px 6px;
-  border-radius: 4px;
-  cursor: pointer;          /* always clickable — shows status or upgrade popover */
-  transition: background .15s;
+  padding: 0 10px;
   flex-shrink: 0;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background .15s;
 }
 
 .version-text {
@@ -4342,7 +4361,7 @@ body.setup-mode[data-theme="dark"] {
   line-height: 1;
 }
 /* Highlight version text when badge is actionable and btn is hovered */
-#btn-settings:hover .version-text { color: var(--color-text-tertiary); }
+.version-badge:hover .version-text { color: var(--color-text-tertiary); }
 .version-badge.has-update .version-text,
 .version-badge.upgrade-done .version-text { color: var(--color-accent-primary); }
 

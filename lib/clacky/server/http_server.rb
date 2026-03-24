@@ -751,7 +751,7 @@ module Clacky
             shell  = Clacky::Tools::Shell.new
             Clacky::Logger.info("[Upgrade] Calling shell.execute...")
             result = shell.execute(command: "gem update openclacky --no-document",
-                                   soft_timeout: 300, hard_timeout: 600)
+                                   soft_timeout: 30, hard_timeout: 300)
             Clacky::Logger.info("[Upgrade] shell.execute returned: exit_code=#{result[:exit_code]}")
             Clacky::Logger.info("[Upgrade] stdout=#{result[:stdout].to_s.slice(0, 500)}")
             Clacky::Logger.info("[Upgrade] stderr=#{result[:stderr].to_s.slice(0, 500)}")
