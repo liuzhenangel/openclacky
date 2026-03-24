@@ -211,7 +211,7 @@ We believe AI development tools should be accessible to everyone.
 
 ```bash
 # One-line installation (macOS/Linux)
-curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.sh | bash
 
 # Or if you have Ruby 3.1+
 gem install openclacky
@@ -239,7 +239,7 @@ clacky tools
 
 Clacky is an open-source project. We welcome contributions!
 
-- **GitHub**: https://github.com/clacky-ai/open-clacky
+- **GitHub**: https://github.com/clacky-ai/openclacky
 - **Discord**: https://discord.gg/clacky
 - **Twitter**: https://twitter.com/clacky_ai
 

@@ -1,7 +1,7 @@
 ---
 name: channel-setup
 description: |
-  Configure IM platform channels (Feishu, WeCom, Weixin) for open-clacky.
+  Configure IM platform channels (Feishu, WeCom, Weixin) for openclacky.
   Uses browser automation for navigation; guides the user to paste credentials and perform UI steps.
   Trigger on: "channel setup", "setup feishu", "setup wecom", "setup weixin", "setup wechat", "channel config",
   "channel status", "channel enable", "channel disable", "channel reconfigure", "channel doctor".
@@ -19,7 +19,7 @@ allowed-tools:
 
 # Channel Setup Skill
 
-Configure IM platform channels for open-clacky. Config is stored at `~/.clacky/channels.yml`.
+Configure IM platform channels for openclacky. Config is stored at `~/.clacky/channels.yml`.
 
 ---
 
@@ -101,7 +101,7 @@ Only reach here if the automated script failed.
 
 ##### Phase 2 — Create a new app
 
-4. **Always create a new app** — do NOT reuse existing apps. Guide the user: "Click 'Create Enterprise Self-Built App', fill in name (e.g. Open Clacky) and description (e.g. AI assistant powered by open-clacky), then submit. Reply done." Wait for "done".
+4. **Always create a new app** — do NOT reuse existing apps. Guide the user: "Click 'Create Enterprise Self-Built App', fill in name (e.g. Open Clacky) and description (e.g. AI assistant powered by openclacky), then submit. Reply done." Wait for "done".
 
 ##### Phase 3 — Enable Bot capability
 

@@ -89,6 +89,6 @@ Create your own skills in `.clacky/skills/` directory!
 
 ## Learn More
 
-- GitHub: https://github.com/clacky-ai/open-clacky
-- Report Issues: https://github.com/clacky-ai/open-clacky/issues
+- GitHub: https://github.com/clacky-ai/openclacky
+- Report Issues: https://github.com/clacky-ai/openclacky/issues
 - Version: 0.7.0

@@ -2,7 +2,7 @@
 
 class Openclacky < Formula
   desc "Command-line interface for AI models with autonomous agent capabilities"
-  homepage "https://github.com/clacky-ai/open-clacky"
+  homepage "https://github.com/clacky-ai/openclacky"
   url "https://rubygems.org/downloads/openclacky-0.6.1.gem"
   sha256 "" # Will be updated when gem is published
   license "MIT"

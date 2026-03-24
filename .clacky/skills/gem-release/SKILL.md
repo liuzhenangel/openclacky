@@ -105,7 +105,7 @@ To use this skill, simply say:
    - Parse the CHANGELOG.md section for `[{version}]`
    - Write it to a temp file (e.g., `/tmp/release_notes_{version}.md`) to avoid shell escaping issues
    - Run `gh release create` with `--notes-file`
-   - Verify the release appears at: `https://github.com/clacky-ai/open-clacky/releases`
+   - Verify the release appears at: `https://github.com/clacky-ai/openclacky/releases`
 
    > **Prerequisite**: `gh` CLI must be installed (`brew install gh`) and authenticated (`gh auth login`)
 
@@ -238,14 +238,14 @@ Present a clear, user-facing release summary after all steps complete:
 
 🔗 Links:
 - RubyGems: https://rubygems.org/gems/openclacky/versions/{version}
-- GitHub Release: https://github.com/clacky-ai/open-clacky/releases/tag/v{version}
+- GitHub Release: https://github.com/clacky-ai/openclacky/releases/tag/v{version}
 
 ⬆️ Upgrade:
 - In the Clacky UI, click "Upgrade" in the bottom-left → detect new version → click upgrade → done
 - Manual upgrade (CLI): `gem update openclacky`
 
 🆕 Fresh install:
-/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh)"
+/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.sh)"
 ```
 
 **Rules for writing the summary:**
@@ -308,7 +308,7 @@ gh release create vX.Y.Z \
 - New version successfully published to RubyGems
 - Git repository updated with version tag
 - CHANGELOG.md updated with release notes
-- GitHub Release created and visible at https://github.com/clacky-ai/open-clacky/releases
+- GitHub Release created and visible at https://github.com/clacky-ai/openclacky/releases
 - No build or deployment errors
 - User-facing release summary presented at the end
 

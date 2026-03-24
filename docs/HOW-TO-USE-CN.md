@@ -91,6 +91,6 @@ Clacky 可以自动执行复杂任务，内置多种工具：
 
 ## 了解更多
 
-- GitHub：https://github.com/clacky-ai/open-clacky
-- 问题反馈：https://github.com/clacky-ai/open-clacky/issues
+- GitHub：https://github.com/clacky-ai/openclacky
+- 问题反馈：https://github.com/clacky-ai/openclacky/issues
 - 当前版本：0.7.0

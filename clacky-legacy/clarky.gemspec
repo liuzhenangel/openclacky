@@ -8,13 +8,13 @@ Gem::Specification.new do |spec|
 
   spec.summary = "Legacy name for openclacky - AI agent command-line interface"
   spec.description = "This is a placeholder gem. Installing 'clarky' will automatically install 'openclacky'. The clarky command is maintained for backward compatibility."
-  spec.homepage = "https://github.com/clacky-ai/open-clacky"
+  spec.homepage = "https://github.com/clacky-ai/openclacky"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "https://github.com/clacky-ai/open-clacky"
-  spec.metadata["changelog_uri"] = "https://github.com/clacky-ai/open-clacky/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = "https://github.com/clacky-ai/openclacky"
+  spec.metadata["changelog_uri"] = "https://github.com/clacky-ai/openclacky/blob/main/CHANGELOG.md"
 
   spec.files = Dir["lib/**/*", "bin/*", "README.md", "LICENSE.txt"]
   spec.require_paths = ["lib"]

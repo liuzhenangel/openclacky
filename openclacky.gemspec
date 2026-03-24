@@ -13,13 +13,13 @@ if RUBY_VERSION < "3.1.0"
      Recommended: Use the one-line installer (handles Ruby automatically)
     ──────────────────────────────────────────────────────────────────────
 
-      /bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh)"
+      /bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.sh)"
 
     This script will automatically install the correct Ruby version via mise
     and then install OpenClacky — no manual Ruby upgrade needed.
 
     For more details, visit:
-      https://github.com/clacky-ai/open-clacky#installation
+      https://github.com/clacky-ai/openclacky#installation
 
   MSG
 end

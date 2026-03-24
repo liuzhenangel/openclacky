@@ -1,6 +1,6 @@
 # OpenClacky
 
-[![Build](https://img.shields.io/github/actions/workflow/status/clacky-ai/open-clacky/main.yml?label=build&style=flat-square)](https://github.com/clacky-ai/open-clacky/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/clacky-ai/openclacky/main.yml?label=build&style=flat-square)](https://github.com/clacky-ai/openclacky/actions)
 [![Release](https://img.shields.io/gem/v/openclacky?label=release&style=flat-square&color=blue)](https://rubygems.org/gems/openclacky)
 [![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.1.0-red?style=flat-square)](https://www.ruby-lang.org)
 [![Downloads](https://img.shields.io/gem/dt/openclacky?label=downloads&style=flat-square&color=brightgreen)](https://rubygems.org/gems/openclacky)
@@ -73,7 +73,7 @@ Built on a production-ready Rails architecture with one-click deployment, dev/pr
 ### Method 1: One-line Install (Recommended)
 
 ```bash
-/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh)"
+/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.sh)"
 ```
 
 ### Method 2: RubyGems
@@ -119,15 +119,15 @@ You'll be prompted to set your **API Key**, **Model**, and **Base URL** (any Ope
 ## Install from Source
 
 ```bash
-git clone https://github.com/clacky-ai/open-clacky.git
-cd open-clacky
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
 bundle install
 bin/clacky
 ```
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/clacky-ai/open-clacky. Contributors are expected to adhere to the [code of conduct](https://github.com/clacky-ai/open-clacky/blob/main/CODE_OF_CONDUCT.md).
+Bug reports and pull requests are welcome on GitHub at https://github.com/clacky-ai/openclacky. Contributors are expected to adhere to the [code of conduct](https://github.com/clacky-ai/openclacky/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 
