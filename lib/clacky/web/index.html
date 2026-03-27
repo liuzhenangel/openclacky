@@ -553,7 +553,10 @@
       </div>
 
       <div class="setup-field">
-        <label class="setup-label" data-i18n="onboard.key.apikey">API Key</label>
+        <label class="setup-label">
+          <span data-i18n="onboard.key.apikey">API Key</span>
+          <a id="setup-get-apikey-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:8px;font-size:12px;color:var(--accent,#6366f1);text-decoration:none;opacity:0.85;" data-i18n="onboard.key.getApiKey">How to get →</a>
+        </label>
         <div class="setup-input-row">
           <input id="setup-api-key" type="password" class="setup-input" data-i18n-placeholder="settings.models.placeholder.apikey" placeholder="sk-…">
           <button id="setup-toggle-key" class="btn-toggle-key" title="Show/hide">

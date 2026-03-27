@@ -17,7 +17,8 @@ module Clacky
         "base_url" => "https://openrouter.ai/api/v1",
         "api" => "openai-responses",
         "default_model" => "anthropic/claude-sonnet-4-6",
-        "models" => []  # Dynamic - fetched from API
+        "models" => [],  # Dynamic - fetched from API
+        "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
       "minimax" => {
@@ -25,7 +26,8 @@ module Clacky
         "base_url" => "https://api.minimaxi.com/v1",
         "api" => "openai-completions",
         "default_model" => "MiniMax-M2.7",
-        "models" => ["MiniMax-M2.5", "MiniMax-M2.7"]
+        "models" => ["MiniMax-M2.5", "MiniMax-M2.7"],
+        "website_url" => "https://www.minimaxi.com/user-center/basic-information/interface-key"
       }.freeze,
 
       "kimi" => {
@@ -33,7 +35,8 @@ module Clacky
         "base_url" => "https://api.moonshot.cn/v1",
         "api" => "openai-completions",
         "default_model" => "kimi-k2.5",
-        "models" => ["kimi-k2.5"]
+        "models" => ["kimi-k2.5"],
+        "website_url" => "https://platform.moonshot.cn/console/api-keys"
       }.freeze,
 
       "anthropic" => {
@@ -41,7 +44,8 @@ module Clacky
         "base_url" => "https://api.anthropic.com",
         "api" => "anthropic-messages",
         "default_model" => "claude-sonnet-4.6",
-        "models" => ["claude-opus-4-6", "claude-sonnet-4.6", "claude-haiku-4.5"]
+        "models" => ["claude-opus-4-6", "claude-sonnet-4.6", "claude-haiku-4.5"],
+        "website_url" => "https://console.anthropic.com/settings/keys"
       }.freeze,
 
       "bedrock-jp" => {
@@ -52,7 +56,8 @@ module Clacky
         "models" => [
           "jp.anthropic.claude-sonnet-4-6",
           "jp.anthropic.claude-haiku-4-6"
-        ]
+        ],
+        "website_url" => "https://console.aws.amazon.com/iam/home#/security_credentials"
       }.freeze
 
     }.freeze
