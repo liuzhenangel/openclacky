@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-03-27
+
+### Added
+- **Improved Anthropic prompt cache hit rate (2-point caching)**: the last 2 eligible messages are now marked for caching instead of 1, so Turn N's cached prefix is still a hit in Turn N+1 — significantly reducing API costs for long sessions
+
+### Improved
+- **Ruby 2.6+ and macOS system Ruby compatibility**: the gem now works with the macOS built-in Ruby (2.6) and LibreSSL — includes polyfills for `filter_map`, `File.absolute_path?`, `URI.encode_uri_component`, and a pure-Ruby AES-256-GCM fallback for LibreSSL environments where native OpenSSL GCM is unavailable
+- **Install script streamlined for China**: the installer is now significantly simplified and more reliable for users in China — direct Alibaba Cloud mirror for RubyGems, plus a dedicated CN-optimized install path
+- **Compression no longer crashes when system prompt is frozen**: fixed a bug where message compression would raise `FrozenError` by mutating the shared system prompt object — it now safely duplicates the string before modification
+
+### Fixed
+- **Compression crash on frozen system prompt**: `MessageCompressor` now calls `.dup` on the system prompt before injecting the compression instruction, preventing `FrozenError` in long sessions
+
 ## [0.9.11] - 2026-03-25
 
 ### Added
