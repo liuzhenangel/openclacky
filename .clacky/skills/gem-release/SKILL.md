@@ -130,6 +130,24 @@ To use this skill, simply say:
 
    > **Prerequisite**: `coscli` installed at `/usr/local/bin/coscli` and configured at `~/.cos.yaml`
 
+6. **Sync scripts/ to OSS**
+
+   After updating latest.txt, sync all files in `scripts/` to OSS so users always get the latest install scripts:
+
+   ```bash
+   # Upload each script file to OSS
+   for script in scripts/*; do
+     coscli cp "$script" cos://clackyai-1258723534/clacky-ai/openclacky/main/scripts/$(basename "$script")
+   done
+
+   # Verify one of the key scripts
+   curl -fsSL https://oss.1024code.com/clacky-ai/openclacky/main/scripts/install.sh | head -5
+   ```
+
+   This ensures `scripts/install.sh`, `scripts/install_simple.sh`, `scripts/install.ps1`, `scripts/uninstall.sh` and any future scripts are all mirrored on OSS.
+
+   > **Prerequisite**: Same `coscli` setup as above
+
 5. **Verify Publication**
    - Check gem appears on RubyGems.org
    - Verify version information is correct
@@ -319,6 +337,12 @@ coscli cp openclacky-X.Y.Z.gem cos://clackyai-1258723534/openclacky/openclacky-X
 echo "X.Y.Z" > /tmp/latest.txt
 coscli cp /tmp/latest.txt cos://clackyai-1258723534/openclacky/latest.txt
 curl -fsSL https://oss.1024code.com/openclacky/latest.txt  # verify
+
+# Sync scripts/ to OSS
+for script in scripts/*; do
+  coscli cp "$script" cos://clackyai-1258723534/clacky-ai/openclacky/main/scripts/$(basename "$script")
+done
+curl -fsSL https://oss.1024code.com/clacky-ai/openclacky/main/scripts/install.sh | head -5  # verify
 ```
 
 ## File Locations

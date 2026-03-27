@@ -158,6 +158,73 @@ RSpec.describe Clacky::Skill do
       expect(call_count).to eq(1)
     end
 
+    context "shell-style ${VAR} substitution from ENV" do
+      it "substitutes known ENV variables" do
+        skill_dir = File.join(temp_dir, "env-skill")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(skill_dir, "SKILL.md"), <<~CONTENT)
+          ---
+          name: env-skill
+          description: Skill with ENV vars
+          ---
+          Connect to http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api
+        CONTENT
+
+        orig_host = ENV["CLACKY_SERVER_HOST"]
+        orig_port = ENV["CLACKY_SERVER_PORT"]
+        ENV["CLACKY_SERVER_HOST"] = "127.0.0.1"
+        ENV["CLACKY_SERVER_PORT"] = "7070"
+        begin
+          skill = described_class.new(skill_dir)
+          result = skill.process_content
+          expect(result).to include("http://127.0.0.1:7070/api")
+          expect(result).not_to include("${CLACKY_SERVER_HOST}")
+          expect(result).not_to include("${CLACKY_SERVER_PORT}")
+        ensure
+          ENV["CLACKY_SERVER_HOST"] = orig_host
+          ENV["CLACKY_SERVER_PORT"] = orig_port
+        end
+      end
+
+      it "leaves unknown ${VAR} unchanged" do
+        skill_dir = File.join(temp_dir, "env-unknown-skill")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(skill_dir, "SKILL.md"), <<~CONTENT)
+          ---
+          name: env-unknown-skill
+          description: Skill with unknown ENV var
+          ---
+          Value: ${TOTALLY_UNKNOWN_VAR_XYZ}
+        CONTENT
+
+        skill = described_class.new(skill_dir)
+        result = skill.process_content
+        expect(result).to include("${TOTALLY_UNKNOWN_VAR_XYZ}")
+      end
+
+      it "substitutes ${VAR} even when template_context is empty" do
+        skill_dir = File.join(temp_dir, "env-no-ctx-skill")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(skill_dir, "SKILL.md"), <<~CONTENT)
+          ---
+          name: env-no-ctx-skill
+          description: Skill
+          ---
+          Port: ${CLACKY_SERVER_PORT}
+        CONTENT
+
+        orig = ENV["CLACKY_SERVER_PORT"]
+        ENV["CLACKY_SERVER_PORT"] = "9999"
+        begin
+          skill = described_class.new(skill_dir)
+          result = skill.process_content(template_context: {})
+          expect(result).to include("Port: 9999")
+        ensure
+          ENV["CLACKY_SERVER_PORT"] = orig
+        end
+      end
+    end
+
     it "leaves unknown <%= key %> placeholders as empty string" do
       skill_dir = File.join(temp_dir, "erb-unknown-skill")
       FileUtils.mkdir_p(skill_dir)

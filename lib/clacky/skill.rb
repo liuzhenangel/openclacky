@@ -527,6 +527,11 @@ module Clacky
     # @param context [Hash]
     # @return [String]
     def expand_templates(content, context)
+      # Shell-style ${VAR} substitution from ENV — handles variables like
+      # ${CLACKY_SERVER_PORT}, ${CLACKY_SERVER_HOST} used in SKILL.md files.
+      # Unknown variables are left as-is (no substitution).
+      content = content.gsub(/\$\{([A-Z_][A-Z0-9_]*)\}/) { ENV[$1] || $& }
+
       return content if context.nil? || context.empty?
 
       # Build a lightweight binding that exposes each context key as a local method
