@@ -20,6 +20,14 @@ module Clacky
         @ui&.show_idle_status(phase: :start, message: "Idle detected. Compressing conversation to optimize costs...")
         if compression_context.nil?
           @ui&.show_idle_status(phase: :end, message: "Idle skipped.")
+          Clacky::Logger.info(
+            "Idle compression skipped",
+            enable_compression: @config.enable_compression,
+            previous_total_tokens: @previous_total_tokens,
+            history_size: @history.size,
+            idle_threshold: IDLE_COMPRESSION_THRESHOLD,
+            max_recent_messages: MAX_RECENT_MESSAGES
+          )
           return false
         end
 
