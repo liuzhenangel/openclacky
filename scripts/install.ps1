@@ -24,9 +24,8 @@ $UBUNTU_WSL_AMD64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubun
 $UBUNTU_WSL_AMD64_SHA256_URL = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubuntu22.04lts.rootfs.tar.gz.sha256"
 $UBUNTU_WSL_ARM64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-arm64-ubuntu22.04lts.rootfs.tar.gz"
 $UBUNTU_WSL_ARM64_SHA256_URL = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-arm64-ubuntu22.04lts.rootfs.tar.gz.sha256"
-$WSL_UPDATE_URL        = "$CLACKY_CDN_BASE_URL/wsl_update_x64.msi"      # Windows 10 x64
-$WSL_UPDATE_URL_WIN11  = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.x64.msi"    # Windows 11 x64
-$WSL_UPDATE_URL_ARM64  = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.arm64.msi"  # Windows 11 ARM64
+$WSL_UPDATE_URL_X64    = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.x64.msi"    # Windows x64 (Win10+Win11)
+$WSL_UPDATE_URL_ARM64  = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.arm64.msi"  # Windows ARM64
 $UBUNTU_WSL_DIR        = "$env:SystemDrive\WSL\Ubuntu"
 
 # ===========================================================================
@@ -332,25 +331,48 @@ function Test-VirtualisationSupported {
     return $ok
 }
 
-# Download and install the WSL2 kernel MSI from our CDN.
-function Install-WslKernel {
-    $build   = [System.Environment]::OSVersion.Version.Build
-    $cpuArch = Get-CpuArch
+# Probe WSL1 with a minimal tar import — same pattern as Test-VirtualisationSupported.
+# Called in Main before Install-WithWsl1 to confirm WSL1 feature is truly active.
+function Test-Wsl1Supported {
+    Write-Info "Probing WSL1 availability..."
+    $probeTar = "$env:TEMP\wsl1_probe.tar"
+    $probeDir = "$env:TEMP\wsl1_probe"
+    $ok = $false
+    try {
+        $bytes = New-Object byte[] 512
+        [System.IO.File]::WriteAllBytes($probeTar, $bytes)
+        New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
 
-    if ($build -lt 19041) {
-        Write-Fail "Windows 10 build 19041 or later is required for WSL2."
-        Write-Fail "Please upgrade to Windows 10 (May 2020 Update) or Windows 11."
-        exit 1
+        Write-Info "[wsl1-probe] Running: wsl --import WslProbe1 $probeDir $probeTar --version 1"
+        wsl.exe --import WslProbe1 $probeDir $probeTar --version 1 2>$null | Out-Null
+        $importExit = $LASTEXITCODE
+        Write-Info "[wsl1-probe] wsl --import exit code: $importExit"
+        $ok = ($importExit -eq 0)
+        if ($ok) {
+            wsl.exe --unregister WslProbe1 2>$null | Out-Null
+            Write-Info "[wsl1-probe] WslProbe1 unregistered."
+        }
+    } catch {
+        Write-Info "[wsl1-probe] Exception caught: $_"
+        $ok = $false
+    } finally {
+        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $probeDir
+        Remove-Item -Force -ErrorAction SilentlyContinue $probeTar
     }
 
-    # Select the correct MSI for this CPU architecture and Windows version.
+    Write-Info "[wsl1-probe] Final result: ok=$ok"
+    return $ok
+}
+
+# Download and install the WSL2 kernel MSI from our CDN.
+function Install-WslKernel {
+    $cpuArch = Get-CpuArch
+
+    # Select the correct MSI for this CPU architecture.
     if ($cpuArch -eq "arm64") {
         $url = $WSL_UPDATE_URL_ARM64
-    } elseif ($build -ge 22000) {
-        # Win11 x64 needs the new full WSL2 package; legacy MSI fails on Win11.
-        $url = $WSL_UPDATE_URL_WIN11
     } else {
-        $url = $WSL_UPDATE_URL
+        $url = $WSL_UPDATE_URL_X64
     }
 
     $msiPath = "$env:TEMP\wsl_update.msi"
@@ -366,13 +388,13 @@ function Install-WslKernel {
 }
 
 # Enable WSL + VirtualMachinePlatform features, install kernel MSI, then reboot.
-function Enable-Wsl2Features {
-    Write-Step "Enabling WSL2 components (requires admin)..."
+function Enable-WslFeatures {
+    Write-Step "Enabling WSL components..."
     dism /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Null
     dism /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
-    Write-Success "WSL2 components enabled."
+    Write-Success "WSL components enabled."
     Install-WslKernel
-    Set-InstallReg -Name "WslFeaturesEnabled" -Value 1
+    Set-InstallReg -Name "InstallPhase" -Value "wsl-pending"
     Prompt-Reboot
 }
 
@@ -395,9 +417,7 @@ function Install-WithWsl2 {
 # Full WSL1 install path. Called only after WSL feature is confirmed enabled
 # and WSL2 probe has failed (Hyper-V not available).
 function Install-WithWsl1 {
-    Write-Step "WSL1 mode selected (virtualisation unavailable)."
-    Write-Warn "WSL2 is preferred but not available in this environment."
-    Write-Warn "Falling back to WSL1 — OpenClacky will still work normally."
+    Write-Step "WSL1 mode selected."
     if (Test-UbuntuInstalled) {
         Write-Info "Ubuntu (WSL) already installed — skipping import."
     } else {
@@ -420,26 +440,41 @@ if (-not (Test-IsAdmin)) {
     exit 1
 }
 
+# Check minimum Windows version: WSL1 requires Build 16215 (Win10 1709).
+$osBuild = [System.Environment]::OSVersion.Version.Build
+if ($osBuild -lt 16215) {
+    Write-Fail "Unsupported Windows version (Build $osBuild)."
+    Write-Fail "WSL requires Windows 10 Build 16215 (version 1709) or later."
+    Write-Fail "Please update Windows and try again."
+    exit 1
+}
+Write-Info "Windows Build $osBuild — OK."
+
 # Step 1: Ensure WSL feature is enabled (same for WSL1 and WSL2)
 Write-Step "Checking WSL status..."
 $wslCode = Invoke-WslListExitCode
 Write-Info "WSL check result: exit code $wslCode"
+$installPhase = Get-InstallReg -Name "InstallPhase" -Default ""
+Write-Info "InstallPhase: '$installPhase'"
 
 if ($wslCode -eq 1) {
-    if ((Get-InstallReg -Name "WslFeaturesEnabled" -Default 0) -eq 1) {
-        Remove-InstallReg -Name "WslFeaturesEnabled"
-        Write-Warn "WSL features were enabled last boot but WSL is still not ready."
-        Write-Warn "Please reboot manually and retry."
+    if ($installPhase -eq "wsl-pending") {
+        # WSL features were enabled last run but still not ready after reboot.
+        # Allow retrying — user may need to reboot again.
+        Write-Warn "WSL features were enabled but WSL is still not ready."
+        Write-Warn "Please reboot your computer and run the installer again."
+        Write-Warn "If this keeps happening, please contact our support team."
         exit 1
     } else {
-        # Enable WSL feature (WSL2 components) and reboot — version will be decided after reboot
-        Enable-Wsl2Features
+        # First time: enable WSL features and reboot.
+        # Phase is set to "wsl-pending" inside Enable-WslFeatures.
+        Enable-WslFeatures
         # Always exits (prompts reboot)
     }
 }
 
-# WSL feature is enabled — clean up flag
-Remove-InstallReg -Name "WslFeaturesEnabled"
+# wslCode=0: WSL is ready — clear phase and proceed
+Remove-InstallReg -Name "InstallPhase"
 
 # Step 2: Probe whether WSL2 actually works
 $virt = Test-VirtualisationSupported
@@ -448,6 +483,13 @@ if ($virt) {
     Install-WithWsl2
     $wslVersion = 2
 } else {
+    Write-Info "[main] WSL2 unavailable, probing WSL1..."
+    if (-not (Test-Wsl1Supported)) {
+        Write-Fail "WSL1 capability check failed."
+        Write-Fail "The installer cannot complete on this machine."
+        Write-Fail "Please contact our support team for assistance."
+        exit 1
+    }
     Install-WithWsl1
     $wslVersion = 1
 }
