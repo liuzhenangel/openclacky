@@ -945,8 +945,10 @@ module Clacky
           handle_key(key)
         end
       rescue Clacky::AgentInterrupted
-        # Ctrl+C raised AgentInterrupted on main thread — stop silently
-        stop
+        # Signal.trap("INT") raised AgentInterrupted on the main thread.
+        # Route through the normal Ctrl+C path so on_interrupt callback fires
+        # (interrupt task thread if running, or exit if idle) instead of quitting blindly.
+        handle_key(:ctrl_c)
       rescue => e
         stop
         raise e
