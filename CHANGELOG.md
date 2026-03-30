@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.20] - 2026-03-30
+
+### Added
+- **SSL error retry**: LLM API calls now automatically retry on SSL errors (same as other network failures — up to 10 retries with 5s delay)
+
+### Fixed
+- **Brand wrapper not found under root**: the install script now places the brand command wrapper in the same directory as the `openclacky` binary, so it is always on PATH regardless of whether running as root or a normal user
+
+### Improved
+- **Cron task management refactored to API**: cron task CRUD operations now go through the HTTP API instead of running ad-hoc Ruby scripts, making the scheduler more reliable and easier to maintain
+- **UTF-8 encoding fix for browser tool on Windows**: browser command output with non-ASCII characters no longer causes encoding errors
+
+### More
+- Installer no longer adds `~/.local/bin` to PATH (wrapper now colocated with gem binary, making the extra PATH entry unnecessary)
+- Brand install tips in Windows PowerShell installer
+
 ## [0.9.19] - 2026-03-29
 
 ### Added
