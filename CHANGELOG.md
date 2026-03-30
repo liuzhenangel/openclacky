@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.21] - 2026-03-30
+
+### Fixed
+- **Feishu channel setup compatibility with v2.6**: fixed Ruby 3.1 syntax incompatibility in the Feishu setup script that caused failures on newer Feishu API versions
+
+### Improved
+- **skill-creator YAML validation**: added frontmatter schema validation for skill files, catching malformed skill definitions before they cause runtime errors
+
+### More
+- Removed `install_simple.sh` (consolidated into `install.sh`)
+
 ## [0.9.20] - 2026-03-30
 
 ### Added
