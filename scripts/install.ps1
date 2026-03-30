@@ -1,6 +1,15 @@
 #Requires -Version 5
 # OpenClacky Windows Installation Script
-# Usage: powershell -c "irm https://oss.1024code.com/clacky-ai/openclacky/main/scripts/install.ps1 | iex"
+#
+# Usage (standard):
+#   powershell -c "irm https://oss.1024code.com/clacky-ai/openclacky/main/scripts/install.ps1 | iex"
+#
+# Usage (white-label / custom brand):
+#   powershell -c "& ([scriptblock]::Create((irm 'https://oss.1024code.com/clacky-ai/openclacky/main/scripts/install.ps1'))) -BrandName 'MyCLI' -CommandName 'mycli'"
+#
+#   Parameters:
+#     -BrandName    Display name shown in prompts    (default: OpenClacky)
+#     -CommandName  CLI command name after install   (default: openclacky)
 #
 # WSL2 is preferred. If virtualisation is unavailable (e.g. running inside a VM),
 # the script automatically falls back to WSL1.
