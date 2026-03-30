@@ -486,7 +486,7 @@ module Clacky
       # -----------------------------------------------------------------------
 
       private def find_node_binary
-        path = `which node 2>/dev/null`.strip
+        path = Clacky::Utils::Encoding.cmd_to_utf8(`which node 2>/dev/null`, source_encoding: "UTF-8").strip
         return nil if path.empty? || !File.executable?(path)
         path
       end
@@ -494,7 +494,7 @@ module Clacky
       private def node_major_version
         node = find_node_binary
         return nil unless node
-        `#{node} --version 2>/dev/null`.strip.gsub(/^v/, "").split(".").first.to_i
+        Clacky::Utils::Encoding.cmd_to_utf8(`#{node} --version 2>/dev/null`, source_encoding: "UTF-8").strip.gsub(/^v/, "").split(".").first.to_i
       end
 
       private def node_error
