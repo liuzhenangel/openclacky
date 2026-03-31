@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.22] - 2026-03-31
+
+### Added
+- **ClackyAI provider (Bedrock with prompt caching)**: added `clackyai` as a first-class provider — uses AWS Bedrock under the hood with prompt caching enabled, normalising token usage to Anthropic semantics so cost calculation works correctly
+- **Browser auto-install script**: `browser-setup` skill can now detect the Chrome/Edge version and automatically download and run the install script, reducing manual setup steps
+
+### Fixed
+- **Feishu setup timeout**: `navigate` method was using `open` (new tab) instead of `navigate` (current tab), causing intermittent timeouts on macOS when opening feishu.cn
+- **Cron task schedule YAML format**: fixed a YAML serialisation bug in the scheduler that produced invalid schedule files
+
 ## [0.9.21] - 2026-03-30
 
 ### Fixed
