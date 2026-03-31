@@ -125,7 +125,7 @@ class BrowserSession
   end
 
   def navigate(url)
-    @client.call("open", url: url)
+    @client.call("navigate", url: url)
     sleep 2
     snapshot
   end
