@@ -542,9 +542,33 @@ module Clacky
       end
 
       def self.build_mcp_command(user_data_dir: nil)
-        args = CHROME_MCP_BASE_ARGS.dup
-        args += ["--userDataDir", user_data_dir.to_s] if user_data_dir && !user_data_dir.to_s.empty?
-        ["chrome-devtools-mcp", *args]
+        # If an explicit user_data_dir is given, use it directly (e.g. from browser.yml).
+        if user_data_dir && !user_data_dir.to_s.empty?
+          return ["chrome-devtools-mcp", *CHROME_MCP_BASE_ARGS, "--userDataDir", user_data_dir.to_s]
+        end
+
+        # On non-macOS/Linux platforms (especially WSL), chrome-devtools-mcp's built-in
+        # --autoConnect only scans Linux-side paths and misses Windows-side Chrome/Edge.
+        # Use BrowserDetector to find any running debuggable browser across all platforms.
+        detected = Clacky::Utils::BrowserDetector.detect
+
+        args = base_args_without_autoconnect
+        case detected&.fetch(:mode)
+        when :ws_endpoint
+          # DevToolsActivePort found — use exact WS endpoint (most reliable)
+          ["chrome-devtools-mcp", *args, "--wsEndpoint", detected[:value]]
+        when :browser_url
+          # TCP port reachable — let chrome-devtools-mcp handle WS negotiation
+          ["chrome-devtools-mcp", *args, "--browserUrl", detected[:value]]
+        else
+          # Nothing detected — fall back to --autoConnect (works on plain macOS/Linux)
+          ["chrome-devtools-mcp", *CHROME_MCP_BASE_ARGS]
+        end
+      end
+
+      # Base args without --autoConnect, used when we supply explicit connection info.
+      def self.base_args_without_autoconnect
+        CHROME_MCP_BASE_ARGS.reject { |a| a == "--autoConnect" }
       end
 
       # Delegate to BrowserManager. Auto-retries once on "selected page has been closed".

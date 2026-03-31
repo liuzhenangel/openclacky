@@ -102,6 +102,9 @@ module Clacky
 
       # Ensure user-space parsers are in place (~/.clacky/parsers/)
       Utils::ParserManager.setup!
+
+      # Ensure bundled shell scripts are in place (~/.clacky/scripts/)
+      Utils::ScriptsManager.setup!
     end
 
     # Restore from a saved session
