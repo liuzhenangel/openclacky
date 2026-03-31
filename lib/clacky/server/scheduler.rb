@@ -300,7 +300,8 @@ module Clacky
         return [] unless File.exist?(SCHEDULES_FILE)
 
         data = YAMLCompat.load_file(SCHEDULES_FILE, permitted_classes: [Symbol])
-        Array(data)
+        raw  = data.is_a?(Hash) ? data["schedules"] : data
+        Array(raw).select { |s| s.is_a?(Hash) }
       rescue => e
         Clacky::Logger.error("scheduler_load_schedules_error", error: e)
         []
