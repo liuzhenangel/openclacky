@@ -52,10 +52,11 @@ module Clacky
         "name" => "Clacky AI",
         "base_url" => "https://api.clacky.ai",
         "api" => "bedrock",
-        "default_model" => "jp.anthropic.claude-sonnet-4-6",
+        "default_model" => "abs-claude-sonnet-4-6",
         "models" => [
-          "jp.anthropic.claude-sonnet-4-6",
-          "jp.anthropic.claude-haiku-4-6"
+          "abs-claude-opus-4-6",
+          "abs-claude-sonnet-4-6",
+          "abs-claude-haiku-4-5"
         ],
         "website_url" => "https://clacky.ai"
       }.freeze

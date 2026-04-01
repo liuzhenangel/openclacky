@@ -16,9 +16,12 @@ module Clacky
     #
     # This module converts canonical format ↔ Bedrock Converse API format.
     module Bedrock
-      # Detect if the API key is an AWS Bedrock API key (ABSK prefix)
-      def self.bedrock_api_key?(api_key)
-        api_key.to_s.start_with?("ABSK")
+      # Detect if the request should use the Bedrock Converse API.
+      # Matches either:
+      #   - API key with "ABSK" prefix (native AWS Bedrock)
+      #   - Model ID with "abs-" prefix (Clacky AI proxy that speaks Bedrock Converse)
+      def self.bedrock_api_key?(api_key, model)
+        api_key.to_s.start_with?("ABSK") || model.to_s.start_with?("abs-")
       end
 
       module_function

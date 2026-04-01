@@ -1571,12 +1571,13 @@ module Clacky
         end
 
         begin
+          model = body["model"].to_s
           test_client = Clacky::Client.new(
             api_key,
             base_url:         body["base_url"].to_s,
+            model:            model,
             anthropic_format: body["anthropic_format"] || false
           )
-          model = body["model"].to_s
           result = test_client.test_connection(model: model)
           if result[:success]
             json_response(res, 200, { ok: true, message: "Connected successfully" })
