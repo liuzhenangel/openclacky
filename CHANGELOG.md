@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.23] - 2026-04-01
+
+### Improved
+- **API client model parameter propagation**: the Client class now accepts and uses an explicit model parameter, enabling better model detection and API routing across all client instantiation points (CLI, agent, subagent)
+- **Bedrock API detection**: improved detection of Bedrock Converse API usage by checking both API key prefix (ABSK) and model prefix (abs-), providing more robust handling of Bedrock models
+
+### Fixed
+- **CLI -c option model initialization**: fixed a bug where the CLI command with -c option was not passing the model name to the client, causing routing failures for certain providers
+
+### More
+- Rename provider display name to "ClackyAI" for consistency
+
 ## [0.9.22] - 2026-03-31
 
 ### Added
