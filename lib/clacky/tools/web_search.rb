@@ -29,8 +29,9 @@ module Clacky
         required: %w[query]
       }
 
-      # Ordered list of search providers to try in sequence
-      PROVIDERS = %i[duckduckgo bing baidu].freeze
+      # Ordered list of search providers to try in sequence.
+      # cn.bing.com is accessible in mainland China without VPN.
+      PROVIDERS = %i[duckduckgo bing].freeze
 
       def execute(query:, max_results: 10, working_dir: nil)
         if query.nil? || query.strip.empty?
@@ -39,7 +40,8 @@ module Clacky
 
         last_error = nil
 
-        PROVIDERS.each do |provider|
+        providers = active_providers
+        providers.each do |provider|
           begin
             results = send(:"search_#{provider}", query, max_results)
             # Consider it a success only if we got real results
@@ -53,6 +55,8 @@ module Clacky
               error: nil
             }
           rescue StandardError => e
+            # DuckDuckGo failed — suppress it for 10 minutes
+            @ddg_unavailable_until = Time.now + 600 if provider == :duckduckgo
             last_error = e
             next
           end
@@ -66,6 +70,15 @@ module Clacky
           provider: nil,
           error: "All search providers failed. Last error: #{last_error&.message}"
         }
+      end
+
+      # Skip DuckDuckGo if it failed recently (within last 10 minutes)
+      private def active_providers
+        if @ddg_unavailable_until && Time.now < @ddg_unavailable_until
+          PROVIDERS.drop(1)
+        else
+          PROVIDERS
+        end
       end
 
       # ── DuckDuckGo ─────────────────────────────────────────────────────────
@@ -109,8 +122,10 @@ module Clacky
 
       private def search_bing(query, max_results)
         encoded_query = CGI.escape(query)
-        url = URI("https://www.bing.com/search?q=#{encoded_query}&count=#{max_results}&setlang=en&cc=us")
-        response = http_get(url, accept_language: "en-US,en;q=0.9")
+        # cn.bing.com redirects to www.bing.com for non-China IPs (e.g. GitHub CI);
+        # follow_redirects ensures both environments work with the same code path.
+        url = URI("https://cn.bing.com/search?q=#{encoded_query}&count=#{max_results}")
+        response = http_get(url, accept_language: "zh-CN,zh;q=0.9,en;q=0.8", follow_redirects: 2)
         return [] unless response.is_a?(Net::HTTPSuccess)
 
         parse_bing_html(response.body, max_results)
@@ -172,67 +187,6 @@ module Clacky
         url
       end
 
-      # ── Baidu ──────────────────────────────────────────────────────────────
-
-      private def search_baidu(query, max_results)
-        encoded_query = CGI.escape(query)
-        url = URI("https://www.baidu.com/s?wd=#{encoded_query}&rn=#{max_results}")
-        response = http_get(url, accept_language: "zh-CN,zh;q=0.9,en;q=0.8", follow_redirects: 3)
-        return [] unless response.is_a?(Net::HTTPSuccess)
-
-        parse_baidu_html(response.body, max_results)
-      end
-
-      private def parse_baidu_html(html, max_results)
-        results = []
-        html = Clacky::Utils::Encoding.to_utf8(html)
-
-        # Include the opening tag itself so mu= attribute is accessible
-        blocks = html.scan(%r{(<div[^>]*\bclass="[^"]*\bresult\b[^"]*\bc-container\b[^"]*"[^>]*>.*?</div>\s*</div>)}m)
-
-        blocks.each do |block_arr|
-          break if results.length >= max_results
-          block = block_arr[0]
-
-          # Prefer mu= attribute (real URL) over baidu redirect link
-          url = extract_baidu_real_url(block)
-          next if url.nil? || url.empty?
-
-          # Extract title from <h3> — title text is nested inside multiple tags
-          h3_match = block.match(%r{<h3[^>]*>(.*?)</h3>}m)
-          next unless h3_match
-
-          title = h3_match[1].gsub(/<[^>]+>/, "").strip
-          title = CGI.unescapeHTML(title) if title.include?("&")
-          next if title.empty?
-
-          # Extract snippet from data-module="abstract"
-          snippet = ""
-          snippet_match = block.match(%r{data-module="abstract">(.*?)</div>}m)
-          if snippet_match
-            snippet = snippet_match[1].gsub(/<[^>]+>/, "").strip
-            snippet = CGI.unescapeHTML(snippet) if snippet.include?("&")
-          end
-
-          results << { title: title, url: url, snippet: snippet }
-        end
-
-        results
-      end
-
-      # Baidu embeds the real destination URL in the mu= attribute on result divs
-      private def extract_baidu_real_url(block)
-        # mu="URL" on the opening <div> tag is the real destination
-        mu_match = block.match(/\bmu="(https?:\/\/[^"]+)"/)
-        return mu_match[1] if mu_match
-
-        # Fallback: any non-baidu href in h3
-        href_match = block.match(%r{<h3[^>]*>.*?<a[^>]*\bhref="(https?://(?!www\.baidu\.com)[^"]+)"[^>]*>}m)
-        return href_match[1] if href_match
-
-        nil
-      end
-
       # ── Shared HTTP helper ─────────────────────────────────────────────────
 
       USER_AGENTS = [
@@ -262,7 +216,7 @@ module Clacky
           read_timeout: 8,
           open_timeout: 5) { |http| http.request(request) }
 
-        # Follow redirects (e.g. Baidu returns 302 on first request)
+        # Follow redirects (e.g. cn.bing.com redirects to www.bing.com for non-China IPs)
         if follow_redirects > 0 && response.is_a?(Net::HTTPRedirection)
           location = response["location"]
           redirect_url = location.start_with?("http") ? URI(location) : URI("#{url.scheme}://#{url.hostname}#{location}")

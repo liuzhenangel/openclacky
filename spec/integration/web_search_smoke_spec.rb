@@ -50,12 +50,6 @@ RSpec.describe "WebSearch smoke tests", :smoke do
     include_examples "live search provider", :bing
   end
 
-  describe "Baidu" do
-    # Baidu requires cookies/session to pass its security verification.
-    # Mark as non-required so it skips instead of failing when blocked.
-    include_examples "live search provider", :baidu, required: false
-  end
-
   describe "fallback chain" do
     it "execute returns results through the fallback chain" do
       result = tool.execute(query: query, max_results: 5)

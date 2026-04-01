@@ -77,17 +77,4 @@ RSpec.describe Clacky::Tools::WebSearch do
       expect(results_with_snippets).to be >= 3
     end
   end
-
-  describe "#parse_baidu_html" do
-    let(:html) { File.read(File.join(fixture_dir, "baidu.html")) }
-    let(:results) { tool.send(:parse_baidu_html, html, 10) }
-
-    include_examples "valid search results", min_count: 3
-
-    it "URLs are fully resolved (not baidu.com/link redirect)" do
-      results.each do |r|
-        expect(r[:url]).not_to include("baidu.com/link?"), "URL should be resolved: #{r[:url]}"
-      end
-    end
-  end
 end
