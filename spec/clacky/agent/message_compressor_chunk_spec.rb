@@ -251,6 +251,74 @@ RSpec.describe "Compression chunk MD archiving" do
         expect(summary_msg[:content]).not_to include("file_reader")
         expect(summary_msg[:chunk_path]).to be_nil
       end
+
+      it "sets compressed_summary: true on the rebuilt assistant message" do
+        result = compressor.rebuild_with_compression(
+          "<summary>Summary</summary>",
+          original_messages: [system_msg],
+          recent_messages: [recent_msg],
+          chunk_path: nil
+        )
+        summary_msg = result.find { |m| m[:role] == "assistant" }
+        expect(summary_msg[:compressed_summary]).to be true
+      end
+    end
+  end
+
+  # ── chunk_index derivation from history ──────────────────────────────────────
+  #
+  # chunk_index must be derived by counting compressed_summary messages already
+  # in original_messages — NOT from @compressed_summaries.size, which resets to
+  # 0 on every process restart and would cause index collisions that overwrite
+  # existing chunk files, creating circular chunk references.
+  describe "chunk_index derivation from compressed_summary messages in history" do
+    def count_index(messages)
+      messages.count { |m| m[:compressed_summary] } + 1
+    end
+
+    it "first compression produces chunk-1 when history has no prior summaries" do
+      messages = [
+        { role: "system",    content: "sys" },
+        { role: "user",      content: "hi" },
+        { role: "assistant", content: "hello" }
+      ]
+      expect(count_index(messages)).to eq(1)
+    end
+
+    it "second compression produces chunk-2 when one summary already in history" do
+      messages = [
+        { role: "system",    content: "sys" },
+        { role: "assistant", content: "Summary of chunk 1", compressed_summary: true, chunk_path: "xxx-chunk-1.md" },
+        { role: "user",      content: "next question" }
+      ]
+      expect(count_index(messages)).to eq(2)
+    end
+
+    it "third compression produces chunk-3 with two prior summaries" do
+      messages = [
+        { role: "system",    content: "sys" },
+        { role: "assistant", content: "s1", compressed_summary: true, chunk_path: "xxx-chunk-1.md" },
+        { role: "assistant", content: "s2", compressed_summary: true, chunk_path: "xxx-chunk-2.md" },
+        { role: "user",      content: "q" }
+      ]
+      expect(count_index(messages)).to eq(3)
+    end
+
+    it "after restart with 9 existing chunks produces chunk-10 (no reset)" do
+      messages = 9.times.map { |i|
+        { role: "assistant", content: "s#{i+1}", compressed_summary: true, chunk_path: "xxx-chunk-#{i+1}.md" }
+      } + [{ role: "user", content: "new" }]
+      expect(count_index(messages)).to eq(10)
+    end
+
+    it "ignores non-compressed assistant messages in the count" do
+      messages = [
+        { role: "assistant", content: "normal reply" },                                          # no compressed_summary
+        { role: "assistant", content: "s1", compressed_summary: true, chunk_path: "c-1.md" },
+        { role: "assistant", content: "s2", compressed_summary: false, chunk_path: "c-x.md" },  # explicitly false
+        { role: "user",      content: "q" }
+      ]
+      expect(count_index(messages)).to eq(2)
     end
   end
 end

@@ -221,10 +221,27 @@ module Clacky
       #
       # @param chunk_path [String] Path to the chunk md file
       # @return [Array<Hash>] rounds array (may be empty if file missing/unreadable)
-      private def parse_chunk_md_to_rounds(chunk_path)
-        return [] unless chunk_path && File.exist?(chunk_path.to_s)
+      private def parse_chunk_md_to_rounds(chunk_path, visited: Set.new)
+        return [] unless chunk_path
 
-        raw = File.read(chunk_path.to_s, encoding: "utf-8")
+        # 1. Try the stored absolute path first (same machine, normal case).
+        # 2. If not found, fall back to basename + SESSIONS_DIR (cross-user / cross-machine).
+        resolved = chunk_path.to_s
+        unless File.exist?(resolved)
+          resolved = File.join(Clacky::SessionManager::SESSIONS_DIR, File.basename(resolved))
+        end
+
+        return [] unless File.exist?(resolved)
+
+        # Guard against circular chunk references (e.g. chunk-3 → chunk-2 → chunk-1 → chunk-9 → … → chunk-3)
+        canonical = File.expand_path(resolved)
+        if visited.include?(canonical)
+          Clacky::Logger.warn("parse_chunk_md_to_rounds: circular reference detected, skipping #{canonical}")
+          return []
+        end
+        visited = visited.dup.add(canonical)
+
+        raw = File.read(resolved)
 
         # Parse YAML front matter to get archived_at for synthetic timestamps
         archived_at = nil
@@ -285,7 +302,7 @@ module Clacky
 
           # Nested chunk: expand it recursively, prepend before current rounds
           if sec[:nested_chunk]
-            nested = parse_chunk_md_to_rounds(sec[:nested_chunk])
+            nested = parse_chunk_md_to_rounds(sec[:nested_chunk], visited: visited)
             rounds = nested + rounds unless nested.empty?
             # Also render its summary text as an assistant event in current round if any
             if current_round && !text.empty?

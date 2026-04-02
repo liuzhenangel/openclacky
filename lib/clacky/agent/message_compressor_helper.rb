@@ -128,7 +128,11 @@ module Clacky
         original_messages = @history.to_a[0..-2]  # All except the last (compression instruction)
 
         # Archive compressed messages to a chunk MD file before discarding them
-        chunk_index = @compressed_summaries.size + 1
+        # Count existing compressed_summary messages in history to determine the next chunk index.
+        # Using @compressed_summaries.size would reset to 0 on process restart and overwrite existing
+        # chunk files, creating circular chunk references. Counting from history is always accurate.
+        existing_chunk_count = original_messages.count { |m| m[:compressed_summary] }
+        chunk_index = existing_chunk_count + 1
         chunk_path = save_compressed_chunk(
           original_messages,
           compression_context[:recent_messages],

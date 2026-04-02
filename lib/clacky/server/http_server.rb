@@ -9,6 +9,7 @@ require "tmpdir"
 require "uri"
 require "open3"
 require "securerandom"
+require "timeout"
 require_relative "session_registry"
 require_relative "web_ui_controller"
 require_relative "scheduler"
@@ -317,11 +318,31 @@ module Clacky
         path   = req.path
         method = req.request_method
 
-        # WebSocket upgrade
+
+
+        # WebSocket upgrade — no timeout applied (long-lived connection)
         if websocket_upgrade?(req)
           handle_websocket(req, res)
           return
         end
+
+        # Wrap all REST handlers in a timeout so a hung handler (e.g. infinite
+        # recursion in chunk parsing) returns a proper 503 instead of an empty 200.
+        timeout_sec = 10
+        Timeout.timeout(timeout_sec) do
+          _dispatch_rest(req, res)
+        end
+      rescue Timeout::Error
+        Clacky::Logger.warn("[HTTP 503] #{method} #{path} timed out after #{timeout_sec}s")
+        json_response(res, 503, { error: "Request timed out" })
+      rescue => e
+        Clacky::Logger.warn("[HTTP 500] #{e.class}: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
+        json_response(res, 500, { error: e.message })
+      end
+
+      def _dispatch_rest(req, res)
+        path   = req.path
+        method = req.request_method
 
         case [method, path]
         when ["GET",    "/api/sessions"]      then api_list_sessions(req, res)
@@ -395,9 +416,6 @@ module Clacky
             not_found(res)
           end
         end
-      rescue => e
-        $stderr.puts "[HTTP 500] #{e.class}: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
-        json_response(res, 500, { error: e.message })
       end
 
       # ── REST API ──────────────────────────────────────────────────────────────
@@ -1624,6 +1642,7 @@ module Clacky
       # Returns a list of UI events (same format as WS events) for the frontend to render.
       def api_session_messages(session_id, req, res)
         unless @registry.ensure(session_id)
+          Clacky::Logger.warn("[messages] registry.ensure failed", session_id: session_id)
           return json_response(res, 404, { error: "Session not found" })
         end
 
@@ -1636,6 +1655,7 @@ module Clacky
         @registry.with_session(session_id) { |s| agent = s[:agent] }
 
         unless agent
+          Clacky::Logger.warn("[messages] agent is nil", session_id: session_id)
           return json_response(res, 200, { events: [], has_more: false })
         end
 
