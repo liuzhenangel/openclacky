@@ -208,6 +208,14 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_progress(message) }
       end
 
+      # Stream shell stdout/stderr lines to the browser while a command is running.
+      # Called periodically from the progress_timer thread in agent.rb.
+      def show_tool_stdout(lines)
+        return if lines.nil? || lines.empty?
+        emit("tool_stdout", lines: lines)
+        # Not forwarded to IM subscribers — too noisy
+      end
+
       def clear_progress
         elapsed = @progress_start_time ? (Time.now - @progress_start_time).round(1) : 0
         @progress_start_time = nil

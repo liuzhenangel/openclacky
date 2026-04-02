@@ -662,6 +662,20 @@ module Clacky
               sleep 2
               @ui.show_progress(progress_message, prefix_newline: false, output_buffer: output_buffer)
               progress_shown = true
+
+              # For shell commands: stream new stdout lines to WebUI as they arrive
+              if output_buffer && @ui.respond_to?(:show_tool_stdout)
+                last_sent_count = 0
+                loop do
+                  sleep 1
+                  stdout_lines = output_buffer[:stdout_lines]&.to_a || []
+                  new_lines = stdout_lines[last_sent_count..]
+                  if new_lines && !new_lines.empty?
+                    @ui.show_tool_stdout(new_lines)
+                    last_sent_count = stdout_lines.size
+                  end
+                end
+              end
             end
           end
 

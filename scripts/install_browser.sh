@@ -19,6 +19,38 @@ print_step()    { echo -e "\n${BLUE}==>${NC} $1"; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+detect_shell() {
+    local shell_name
+    shell_name=$(basename "$SHELL")
+
+    case "$shell_name" in
+        zsh)
+            CURRENT_SHELL="zsh"
+            SHELL_RC="$HOME/.zshrc"
+            ;;
+        bash)
+            CURRENT_SHELL="bash"
+            # macOS uses ~/.bash_profile; Linux uses ~/.bashrc
+            if [ "$(uname)" = "Darwin" ]; then
+                SHELL_RC="$HOME/.bash_profile"
+            else
+                SHELL_RC="$HOME/.bashrc"
+            fi
+            ;;
+        fish)
+            CURRENT_SHELL="fish"
+            SHELL_RC="$HOME/.config/fish/config.fish"
+            ;;
+        *)
+            # Fallback: treat as bash
+            CURRENT_SHELL="bash"
+            SHELL_RC="$HOME/.bashrc"
+            ;;
+    esac
+
+    print_info "Detected shell: $CURRENT_SHELL (rc file: $SHELL_RC)"
+}
+
 # --------------------------------------------------------------------------
 # Network region detection (quick — only probes google + baidu)
 # --------------------------------------------------------------------------
@@ -139,6 +171,15 @@ ensure_mise() {
 
     print_info "Installing mise..."
     if curl -fsSL "$MISE_INSTALL_URL" | sh; then
+        # Add mise activation to the current shell's rc file
+        local mise_init_line='eval "$(~/.local/bin/mise activate '"$CURRENT_SHELL"')"'
+        if [ -f "$SHELL_RC" ]; then
+            echo "$mise_init_line" >> "$SHELL_RC"
+        else
+            echo "$mise_init_line" > "$SHELL_RC"
+        fi
+        print_info "Added mise activation to $SHELL_RC"
+
         export PATH="$HOME/.local/bin:$PATH"
         eval "$(~/.local/bin/mise activate bash 2>/dev/null)" 2>/dev/null || true
         print_success "mise installed"
@@ -223,6 +264,7 @@ main() {
     echo "Browser Automation Setup"
     echo "========================"
 
+    detect_shell
     detect_network_region
     # Install Chrome first on macOS if not present
     [[ "$(uname)" == "Darwin" ]] && ensure_chrome_macos
