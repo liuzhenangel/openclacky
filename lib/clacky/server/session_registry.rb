@@ -176,10 +176,13 @@ module Clacky
         # ── date filter (YYYY-MM-DD, matches created_at prefix) ──────────────
         all = all.select { |s| s[:created_at].to_s.start_with?(date) } if date
 
-        # ── name search ──────────────────────────────────────────────────────
+        # ── name / id search ─────────────────────────────────────────────────
         if q && !q.empty?
           q_down = q.downcase
-          all = all.select { |s| (s[:name] || "").downcase.include?(q_down) }
+          all = all.select { |s|
+            (s[:name] || "").downcase.include?(q_down) ||
+              (s[:session_id] || "").downcase.include?(q_down)
+          }
         end
 
         all = all.select { |s| (s[:created_at] || "") < before } if before
