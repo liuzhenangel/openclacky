@@ -260,14 +260,17 @@ module Clacky
           # Extract and materialize file attachments from an inbound item_list.
           #
           # Images are downloaded from CDN and converted to data_url so the agent's
-          # vision pipeline (partition_files → resolve_vision_images) picks them up
-          # correctly. Other file types are returned with cdn_media metadata only
-          # (download-on-demand is not yet implemented for non-image types).
+          # vision pipeline (partition_files → resolve_vision_images) picks them up.
+          # Files (PDF, DOCX, etc.) are downloaded to clacky-uploads so the agent's
+          # file processing pipeline (process_path) can parse them.
+          # Voice/video are kept as cdn_media metadata only (no local download).
           #
-          # Returns Array of Hashes. Image entries include:
+          # Returns Array of Hashes. Image entries:
           #   { type: :image, name: String, mime_type: String, data_url: String }
-          # Other entries include:
-          #   { type: :file/:voice/:video, name: String, cdn_media: Hash }
+          # File entries (downloaded):
+          #   { type: :file, name: String, path: String }
+          # Voice/video entries:
+          #   { type: :voice/:video, name: String, cdn_media: Hash }
           def extract_files(item_list)
             files = []
             item_list.each do |item|
@@ -311,16 +314,38 @@ module Clacky
                   name:      "voice.amr",
                   cdn_media: v["media"]
                 }
-              when 4  # FILE
+              when 4  # FILE — download to disk so agent can parse it
                 fi = item["file_item"]
                 next unless fi
-                files << {
-                  type:      :file,
-                  name:      fi["file_name"],
-                  md5:       fi["md5"],
-                  len:       fi["len"],
-                  cdn_media: fi["media"]
-                }
+                cdn_media = fi["media"]
+                file_name = fi["file_name"].to_s
+                file_name = "attachment" if file_name.empty?
+
+                if cdn_media
+                  begin
+                    raw_bytes = @api_client.download_media(cdn_media, ApiClient::MEDIA_TYPE_FILE)
+                    saved     = Clacky::Utils::FileProcessor.save(body: raw_bytes, filename: file_name)
+                    Clacky::Logger.info("[WeixinAdapter] file downloaded to #{saved[:path]} (#{raw_bytes.bytesize} bytes)")
+                    files << {
+                      type: :file,
+                      name: saved[:name],
+                      path: saved[:path]
+                    }
+                  rescue => e
+                    Clacky::Logger.warn("[WeixinAdapter] Failed to download file #{file_name}: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
+                    # Fall back to metadata-only so the agent at least knows a file was attached
+                    files << {
+                      type:      :file,
+                      name:      file_name,
+                      cdn_media: cdn_media
+                    }
+                  end
+                else
+                  files << {
+                    type: :file,
+                    name: file_name
+                  }
+                end
               when 5  # VIDEO
                 vi = item["video_item"]
                 next unless vi
