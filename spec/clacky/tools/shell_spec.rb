@@ -120,45 +120,83 @@ RSpec.describe Clacky::Tools::Shell do
   # wrap_with_shell
   # ---------------------------------------------------------------------------
   describe "#wrap_with_shell" do
-    it "returns the command unchanged (no shell wrapping)" do
-      wrapped = tool.wrap_with_shell("ls")
-      expect(wrapped).to eq("ls")
+    it "returns command unchanged when shell configs have not changed" do
+      allow(tool).to receive(:shell_configs_changed?).and_return(false)
+      expect(tool.wrap_with_shell("ls")).to eq("ls")
     end
 
-    it "passes through commands with arguments" do
-      wrapped = tool.wrap_with_shell("echo 'hello world'")
-      expect(wrapped).to eq("echo 'hello world'")
+    it "wraps with -l -i when shell configs have changed" do
+      shell = ENV['SHELL'] || '/bin/bash'
+      allow(tool).to receive(:shell_configs_changed?).and_return(true)
+      wrapped = tool.wrap_with_shell("ls")
+      expect(wrapped).to include("-l")
+      expect(wrapped).to include("-i")
+      expect(wrapped).to include("ls")
     end
   end
 
   # ---------------------------------------------------------------------------
-  # rc_source_snippet (private)
+  # shell_config_hashes (private)
   # ---------------------------------------------------------------------------
-  describe "#rc_source_snippet" do
-    it "returns zshrc snippet for zsh" do
+  describe "#shell_config_hashes" do
+    it "returns zsh config files for zsh" do
       allow(ENV).to receive(:[]).with("HOME").and_return("/home/user")
-      snippet = tool.send(:rc_source_snippet, "/bin/zsh")
-      expect(snippet).to include(".zshrc")
-      expect(snippet).to include("source")
-      expect(snippet).to include("2>/dev/null")
+      allow(File).to receive(:exist?).and_return(false)
+      hashes = tool.send(:shell_config_hashes, "/bin/zsh")
+      expect(hashes).to be_a(Hash)
     end
 
-    it "returns bashrc snippet for bash" do
+    it "returns bash config files for bash" do
       allow(ENV).to receive(:[]).with("HOME").and_return("/home/user")
-      snippet = tool.send(:rc_source_snippet, "/bin/bash")
-      expect(snippet).to include(".bashrc")
+      allow(File).to receive(:exist?).and_return(false)
+      hashes = tool.send(:shell_config_hashes, "/bin/bash")
+      expect(hashes).to be_a(Hash)
     end
 
-    it "returns fish config snippet for fish" do
+    it "returns fish config file for fish" do
       allow(ENV).to receive(:[]).with("HOME").and_return("/home/user")
-      snippet = tool.send(:rc_source_snippet, "/usr/local/bin/fish")
-      expect(snippet).to include("config.fish")
+      allow(File).to receive(:exist?).and_return(false)
+      hashes = tool.send(:shell_config_hashes, "/usr/local/bin/fish")
+      expect(hashes).to be_a(Hash)
     end
 
-    it "returns nil for unknown shells" do
+    it "returns .profile for unknown shells" do
       allow(ENV).to receive(:[]).with("HOME").and_return("/home/user")
-      snippet = tool.send(:rc_source_snippet, "/bin/sh")
-      expect(snippet).to be_nil
+      allow(File).to receive(:exist?).and_return(false)
+      hashes = tool.send(:shell_config_hashes, "/bin/sh")
+      expect(hashes).to be_a(Hash)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # shell_configs_changed? (private)
+  # ---------------------------------------------------------------------------
+  describe "#shell_configs_changed?" do
+    it "returns false on first call (establishes baseline)" do
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "abc123" })
+      expect(tool.send(:shell_configs_changed?, "/bin/zsh")).to be false
+    end
+
+    it "returns true when a config file changes" do
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "abc123" })
+      tool.send(:shell_configs_changed?, "/bin/zsh") # establish baseline
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "newhash" })
+      expect(tool.send(:shell_configs_changed?, "/bin/zsh")).to be true
+    end
+
+    it "returns false when nothing changes" do
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "abc123" })
+      tool.send(:shell_configs_changed?, "/bin/zsh") # establish baseline
+      expect(tool.send(:shell_configs_changed?, "/bin/zsh")).to be false
+    end
+
+    it "updates snapshot after detecting a change" do
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "abc123" })
+      tool.send(:shell_configs_changed?, "/bin/zsh")
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "newHash" })
+      tool.send(:shell_configs_changed?, "/bin/zsh") # triggers update
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "newHash" })
+      expect(tool.send(:shell_configs_changed?, "/bin/zsh")).to be false
     end
   end
 

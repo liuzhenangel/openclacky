@@ -14,7 +14,7 @@ module Clacky
     # via gem version stamp in ~/.clacky/scripts/.version).
     module ScriptsManager
       SCRIPTS_DIR         = File.expand_path("~/.clacky/scripts").freeze
-      DEFAULT_SCRIPTS_DIR = File.expand_path("../../../../scripts", __dir__).freeze
+      DEFAULT_SCRIPTS_DIR = File.expand_path("../../../scripts", __dir__).freeze
       VERSION_FILE        = File.join(SCRIPTS_DIR, ".version").freeze
 
       SCRIPTS = %w[

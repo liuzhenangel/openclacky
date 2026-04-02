@@ -29,6 +29,10 @@ CN_NPM_REGISTRY="https://registry.npmmirror.com"
 CN_NODE_MIRROR_URL="https://cdn.npmmirror.com/binaries/node/"
 DEFAULT_MISE_INSTALL_URL="https://mise.run"
 CN_MISE_INSTALL_URL="https://oss.1024code.com/mise.sh"
+# Chrome DMG — update CHROME_VERSION when re-uploading a newer build to OSS
+CHROME_VERSION="134"
+DEFAULT_CHROME_DMG_URL="https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
+CN_CHROME_DMG_URL="https://oss.1024code.com/browsers/googlechrome-mac-${CHROME_VERSION}.dmg"
 MISE_INSTALL_URL="$DEFAULT_MISE_INSTALL_URL"
 NPM_REGISTRY_URL="$DEFAULT_NPM_REGISTRY"
 NODE_MIRROR_URL=""
@@ -69,6 +73,48 @@ detect_network_region() {
     else
         print_warning "Region: unknown — using global defaults"
     fi
+}
+
+# --------------------------------------------------------------------------
+# Ensure Chrome is installed (macOS only)
+# Downloads DMG to Desktop, opens it, then exits with instructions.
+# Re-run the script after Chrome is installed.
+# --------------------------------------------------------------------------
+ensure_chrome_macos() {
+    print_step "Checking Google Chrome..."
+
+    if [ -d "/Applications/Google Chrome.app" ] || [ -d "$HOME/Applications/Google Chrome.app" ]; then
+        print_success "Google Chrome is already installed"
+        return 0
+    fi
+
+    print_warning "Google Chrome not found — downloading..."
+
+    local dmg_url
+    if [ "$USE_CN_MIRRORS" = true ]; then
+        dmg_url="$CN_CHROME_DMG_URL"
+        print_info "Using OSS mirror (Chrome ${CHROME_VERSION})"
+    else
+        dmg_url="$DEFAULT_CHROME_DMG_URL"
+        print_info "Using official Google download"
+    fi
+
+    local dmg_path="$HOME/Desktop/googlechrome.dmg"
+    print_info "Downloading Chrome (~238 MB) to Desktop..."
+
+    if ! curl -L --progress-bar "$dmg_url" -o "$dmg_path"; then
+        print_error "Download failed"
+        print_info "Please download manually: ${dmg_url}"
+        exit 1
+    fi
+
+    print_success "Downloaded: ${dmg_path}"
+    print_info "Opening DMG installer..."
+    open "$dmg_path"
+
+    echo ""
+    print_info "Please drag 'Google Chrome' to the Applications folder, then re-run this script."
+    exit 0
 }
 
 # --------------------------------------------------------------------------
@@ -178,6 +224,8 @@ main() {
     echo "========================"
 
     detect_network_region
+    # Install Chrome first on macOS if not present
+    [[ "$(uname)" == "Darwin" ]] && ensure_chrome_macos
     ensure_node   || exit 1
     install_chrome_devtools_mcp || exit 1
 

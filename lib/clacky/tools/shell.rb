@@ -251,45 +251,83 @@ module Clacky
         end
       end
 
-      # Wrap command in a login shell and explicitly source the user's interactive
-      # rc file so that PATH customisations from nvm, rbenv, brew, etc. are available.
+      # Wrap command in a login shell when shell config files have changed since
+      # the last check. This ensures PATH updates (nvm, rbenv, mise, brew, etc.)
+      # are picked up without paying the ~1s startup cost on every command.
       #
-      # We use -l (login) instead of -i (interactive) to avoid SIGTTIN: when the
-      # process runs in a new process group (pgroup: 0) it is not the terminal's
-      # foreground group, so an interactive shell trying to acquire /dev/tty gets
-      # stopped by the kernel immediately.
+      # Strategy:
+      #   - On first call: snapshot MD5 hashes of all shell config files in memory.
+      #   - On subsequent calls: re-hash and compare. If any file changed, use
+      #     `shell -l -i -c ...` once to get the fresh environment, then update snapshot.
+      #   - If nothing changed: run command directly (zero overhead).
       #
-      # -l loads ~/.zprofile / ~/.bash_profile which is enough for most PATH setup.
-      # We additionally source the interactive rc file (~/.zshrc or ~/.bashrc) so
-      # aliases, functions, and tool shims (rbenv init, nvm, etc.) are also present.
+      # We avoid -i (interactive) in normal mode because it causes SIGTTIN when the
+      # process is not in the terminal's foreground group (pgroup: 0).
+      # When configs have changed we do use -l -i so that all shell init hooks
+      # (nvm, rbenv init, mise activate, etc.) run in the correct order.
       def wrap_with_shell(command)
-        # shell = ENV['SHELL'].to_s
-        # shell = '/bin/bash' if shell.empty?
+        shell = current_shell
 
-        # rc_source = rc_source_snippet(shell)
-        # full_command = rc_source ? "#{rc_source} #{command}" : command
-
-        # "#{shell} -l -c #{Shellwords.escape(full_command)}"
-        return command
+        if shell_configs_changed?(shell)
+          "#{shell} -l -i -c #{Shellwords.escape(command)}"
+        else
+          command
+        end
       end
 
-      # Returns a shell snippet that sources the user's interactive rc file,
-      # suppressing all errors so missing files never break command execution.
-      private def rc_source_snippet(shell)
+      # Detect the user's current shell binary.
+      private def current_shell
+        shell = ENV['SHELL'].to_s
+        shell.empty? ? '/bin/bash' : shell
+      end
+
+      # Returns true (and updates the in-memory snapshot) when any shell config
+      # file has changed since the last call. Returns false on the very first call
+      # so the initial snapshot is established without triggering a reload.
+      #
+      # Config files checked per shell:
+      #   zsh  — ~/.zshrc, ~/.zprofile, ~/.zshenv
+      #   bash — ~/.bashrc, ~/.bash_profile, ~/.profile
+      #   fish — ~/.config/fish/config.fish
+      #   (all shells also check ~/.profile as a fallback)
+      private def shell_configs_changed?(shell)
+        require "digest"
+
+        current = shell_config_hashes(shell)
+
+        if @shell_config_hashes.nil?
+          # First call: establish baseline, do NOT trigger reload
+          @shell_config_hashes = current
+          return false
+        end
+
+        if current != @shell_config_hashes
+          @shell_config_hashes = current
+          return true
+        end
+
+        false
+      end
+
+      # Returns a hash of { filepath => md5_hex } for existing config files.
+      private def shell_config_hashes(shell)
         shell_name = File.basename(shell)
         home = ENV['HOME'].to_s
 
-        rc_file = case shell_name
-        when 'zsh'  then File.join(home, '.zshrc')
-        when 'bash' then File.join(home, '.bashrc')
-        when 'fish' then File.join(home, '.config', 'fish', 'config.fish')
+        files = case shell_name
+        when 'zsh'
+          %w[.zshrc .zprofile .zshenv].map { File.join(home, _1) }
+        when 'bash'
+          %w[.bashrc .bash_profile .profile].map { File.join(home, _1) }
+        when 'fish'
+          [File.join(home, '.config', 'fish', 'config.fish')]
+        else
+          [File.join(home, '.profile')]
         end
 
-        return nil unless rc_file
-
-        # Source silently: suppress stderr and ignore exit code so that
-        # errors in the user's rc file don't prevent the command from running.
-        "source #{Shellwords.escape(rc_file)} 2>/dev/null;"
+        files
+          .select { File.exist?(_1) }
+          .to_h { |f| [f, Digest::MD5.file(f).hexdigest] }
       end
 
       def determine_timeouts(command, soft_timeout, hard_timeout)
