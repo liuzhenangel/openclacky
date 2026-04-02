@@ -153,7 +153,8 @@ module Clacky
             model_info = s[:agent]&.current_model_info
             live_name  = s[:agent]&.name
             live_name  = nil if live_name&.empty?
-            { status: s[:status], error: s[:error], model: model_info&.dig(:model), name: live_name }
+            { status: s[:status], error: s[:error], model: model_info&.dig(:model), name: live_name,
+              total_tasks: s[:agent]&.total_tasks, total_cost: s[:agent]&.total_cost }
           end
         end
 
@@ -196,8 +197,8 @@ module Clacky
             working_dir:   s[:working_dir],
             created_at:    s[:created_at],
             updated_at:    s[:updated_at],
-            total_tasks:   s.dig(:stats, :total_tasks) || 0,
-            total_cost:    s.dig(:stats, :total_cost_usd) || 0.0,
+            total_tasks:   ls&.dig(:total_tasks) || s.dig(:stats, :total_tasks) || 0,
+            total_cost:    ls&.dig(:total_cost)  || s.dig(:stats, :total_cost_usd) || 0.0,
           }
         end
       end

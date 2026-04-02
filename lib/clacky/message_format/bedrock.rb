@@ -180,6 +180,8 @@ module Clacky
 
         # regular user/assistant message
         blocks = content_to_blocks(content)
+        # Bedrock rejects messages with an empty content array — use a placeholder text block.
+        blocks = [{ text: "..." }] if blocks.empty?
         { role: role, content: blocks }
       end
 
@@ -187,11 +189,17 @@ module Clacky
       private_class_method def self.content_to_blocks(content)
         case content
         when String
+          # Bedrock rejects blank text blocks — skip empty strings
+          return [] if content.empty?
+
           [{ text: content }]
         when Array
           content.map { |b| normalize_block(b) }.compact
         else
-          [{ text: content.to_s }]
+          str = content.to_s
+          return [] if str.empty?
+
+          [{ text: str }]
         end
       end
 
@@ -201,7 +209,11 @@ module Clacky
 
         case block[:type]
         when "text"
-          { text: block[:text].to_s }
+          # Bedrock rejects blank text blocks — drop them
+          text = block[:text].to_s
+          return nil if text.empty?
+
+          { text: text }
         when "image_url"
           # Bedrock image format — base64 only
           url = block.dig(:image_url, :url) || block[:url]

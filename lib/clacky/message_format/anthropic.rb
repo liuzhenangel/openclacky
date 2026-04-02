@@ -168,6 +168,8 @@ module Clacky
         #      user message as a cache breakpoint, which invalidates the intended cache boundary
         #      and results in cache misses (cache_read=0) every turn.
         blocks = content_to_blocks(content)
+        # Anthropic rejects messages with an empty content array — use a placeholder text block.
+        blocks = [{ type: "text", text: "..." }] if blocks.empty?
         { role: role, content: blocks }
       end
 
@@ -176,11 +178,17 @@ module Clacky
       private_class_method def self.content_to_blocks(content)
         case content
         when String
+          # Anthropic rejects blank text blocks — skip empty strings
+          return [] if content.empty?
+
           [{ type: "text", text: content }]
         when Array
           content.map { |b| normalize_block(b) }.compact
         else
-          [{ type: "text", text: content.to_s }]
+          str = content.to_s
+          return [] if str.empty?
+
+          [{ type: "text", text: str }]
         end
       end
 
@@ -190,8 +198,12 @@ module Clacky
 
         case block[:type]
         when "text"
+          # Anthropic rejects blank text blocks — drop them instead of sending { type:"text", text:"" }
+          text = block[:text]
+          return nil if text.nil? || text.empty?
+
           # Preserve cache_control if present (placed by Client#apply_message_caching)
-          result = { type: "text", text: block[:text] }
+          result = { type: "text", text: text }
           result[:cache_control] = block[:cache_control] if block[:cache_control]
           result
         when "image_url"
