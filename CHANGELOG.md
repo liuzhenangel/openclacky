@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.25] - 2026-04-02
+
+### Added
+- **CSV file upload support**: you can now upload `.csv` files in the Web UI — agent can read and analyse tabular data directly
+- **Browser install tips**: when a browser-dependent command fails, the agent now shows a clear install tip with instructions to set up Chrome/Edge, rather than a cryptic error
+- **Auto-focus on file upload dialog**: the file input field is now auto-focused when the upload dialog opens, improving keyboard UX
+- **Session ID search in Web UI**: you can now search sessions by session ID in addition to session name
+
+### Fixed
+- **WeChat (Weixin) file upload**: fixed a bug where file attachments sent via WeChat were not correctly forwarded to the agent
+- **WeChat without browser**: WeChat channel now works even when no browser tool is configured — falls back gracefully
+- **API message timeout**: fixed a race condition in message compression / session serialisation that could cause API requests to time out mid-conversation
+- **Session chunk replay**: fixed a bug where streaming (chunk-based) messages were incorrectly replayed when restoring a session
+
+### Improved
+- **Shell tool robustness**: `pkill` commands are now scope-limited to prevent accidental process kills; server process cleans up properly when the terminal is closed
+- **Broken pipe handling**: improved error handling in the HTTP server and shell tool to avoid noisy broken-pipe errors on abrupt connection close
+
+### More
+- Updated product-help skill with new session search and CSV upload documentation
+- Updated channel-setup skill with improved WeChat non-browser setup guide
+
 ## [0.9.24] - 2026-04-02
 
 ### Added
