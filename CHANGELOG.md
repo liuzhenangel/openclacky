@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.24] - 2026-04-02
+
+### Added
+- **New session list & search in Web UI**: sidebar now shows full session history with real-time search — find any past conversation instantly
+- **Session type indicators**: sessions are labeled by type (chat / agent) so you can see at a glance what kind of interaction it was
+- **Image lightbox**: click any image in the chat to expand it full-screen with a clean overlay viewer
+- **Session history replay for streaming messages**: chunk-based (streaming) messages are now fully replayed when revisiting a past session
+- **Xiaomi AI provider**: added Xiaomi as a supported AI provider
+- **Chinese Bing web search**: web search now uses cn.bing.com for users in China, improving search relevance and reliability
+- **Auto-install system dependencies script**: agent can now automatically install missing system packages (Node, Python, etc.) via a bundled `install_system_deps.sh` script
+- **User message timestamps**: each user message now displays the time it was sent
+
+### Fixed
+- **Bedrock file attachments & partial cost tracking**: fixed file handling and cost accumulation for AWS Bedrock sessions
+- **Session name timestamp**: fixed incorrect timestamp display on session names
+- **New session scroll**: new sessions now correctly scroll to the latest message
+- **Feishu WebSocket client crash**: fixed a nil-reference error that caused the Feishu WS client to crash on reconnect
+
 ## [0.9.23] - 2026-04-01
 
 ### Improved
