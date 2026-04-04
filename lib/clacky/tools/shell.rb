@@ -258,18 +258,27 @@ module Clacky
       # Strategy:
       #   - On first call: snapshot MD5 hashes of all shell config files in memory.
       #   - On subsequent calls: re-hash and compare. If any file changed, use
-      #     `shell -l -i -c ...` once to get the fresh environment, then update snapshot.
+      #     `shell -l -c 'source RC; command'` once to pick up the fresh env.
       #   - If nothing changed: run command directly (zero overhead).
       #
-      # We avoid -i (interactive) in normal mode because it causes SIGTTIN when the
-      # process is not in the terminal's foreground group (pgroup: 0).
-      # When configs have changed we do use -l -i so that all shell init hooks
-      # (nvm, rbenv init, mise activate, etc.) run in the correct order.
+      # We NEVER use -i (interactive) because it causes zsh to acquire /dev/tty
+      # as a controlling terminal. With pgroup: 0 the child is not in the
+      # terminal's foreground process group, so the attempt triggers SIGTTIN and
+      # the process is stopped (not killed) — wait_thr.alive? stays true forever
+      # and the command only exits after the 60 s hard_timeout.
+      # Instead we explicitly source the user's rc file so that tool-chain hooks
+      # (nvm, rbenv, mise, brew, etc.) are still initialised correctly.
       def wrap_with_shell(command)
         shell = current_shell
 
         if shell_configs_changed?(shell)
-          "#{shell} -l -i -c #{Shellwords.escape(command)}"
+          rc = shell_config_hashes(shell, rc_only: true).keys.first
+          if rc
+            # Source rc explicitly — no -i flag, no SIGTTIN risk
+            "#{shell} -l -c #{Shellwords.escape("source #{Shellwords.escape(rc)} 2>/dev/null; #{command}")}"
+          else
+            "#{shell} -l -c #{Shellwords.escape(command)}"
+          end
         else
           command
         end
@@ -310,22 +319,27 @@ module Clacky
       end
 
       # Returns a hash of { filepath => md5_hex } for existing config files.
-      private def shell_config_hashes(shell)
+      # When rc_only: true, only the primary interactive rc file is included
+      # (e.g. ~/.zshrc for zsh, ~/.bashrc for bash) — used for explicit sourcing.
+      # When rc_only: false (default), all login + interactive config files are
+      # included so that any change triggers a shell reload.
+      private def shell_config_hashes(shell, rc_only: false)
         shell_name = File.basename(shell)
         home = ENV['HOME'].to_s
 
         files = case shell_name
         when 'zsh'
-          %w[.zshrc .zprofile .zshenv].map { |f| File.join(home, f) }
+          rc_only ? %w[.zshrc] : %w[.zshrc .zprofile .zshenv]
         when 'bash'
-          %w[.bashrc .bash_profile .profile].map { |f| File.join(home, f) }
+          rc_only ? %w[.bashrc] : %w[.bashrc .bash_profile .profile]
         when 'fish'
-          [File.join(home, '.config', 'fish', 'config.fish')]
+          ['.config/fish/config.fish']
         else
-          [File.join(home, '.profile')]
+          ['.profile']
         end
 
         files
+          .map { |f| File.join(home, f) }
           .select { |f| File.exist?(f) }
           .to_h { |f| [f, Digest::MD5.file(f).hexdigest] }
       end
