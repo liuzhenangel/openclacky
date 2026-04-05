@@ -1,13 +1,14 @@
 #!/bin/bash
-# Install system-level build dependencies required by OpenClacky tools.
+# install_system_deps.sh — install system-level build tools
+# Generated from scripts/build/src/install_system_deps.sh.cc — DO NOT EDIT DIRECTLY
 #
-# macOS  : Xcode Command Line Tools (provides python3, git, make, clang, etc.)
-# Linux  : build-essential + python3 + git + curl (via apt on Ubuntu/Debian)
-#
-# This script is copied to ~/.clacky/scripts/ on first run and can be invoked
-# by any skill or tool that requires system-level dependencies.
+# macOS : Xcode Command Line Tools
+# Linux : build-essential + python3 + git + curl (apt, Ubuntu/Debian)
 
 set -e
+
+
+# ---[ @include lib/colors.sh ]---
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,69 +22,274 @@ print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
 print_error()   { echo -e "${RED}✗${NC} $1"; }
 print_step()    { echo -e "\n${BLUE}==>${NC} $1"; }
 
-command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-# --------------------------------------------------------------------------
-# OS detection
-# --------------------------------------------------------------------------
+# ---[ @include lib/os.sh ]---
+
+# Sets OS (macOS | Linux | Windows | Unknown) and DISTRO (ubuntu | debian | …)
 detect_os() {
     case "$(uname -s)" in
-        Darwin*) OS=macOS ;;
-        Linux*)  OS=Linux ;;
+        Linux*)  OS=Linux  ;;
+        Darwin*) OS=macOS  ;;
+        CYGWIN*) OS=Windows ;;
+        MINGW*)  OS=Windows ;;
         *)       OS=Unknown ;;
     esac
+    print_info "Detected OS: $OS"
 
     if [ "$OS" = "Linux" ] && [ -f /etc/os-release ]; then
         # shellcheck source=/dev/null
         . /etc/os-release
         DISTRO=$ID
+        print_info "Detected Linux distribution: $DISTRO"
     else
         DISTRO=unknown
     fi
 }
 
+# Returns 0 if the given command is on PATH
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+# Boolean helpers — use these in business logic instead of inline string comparisons
+is_macos()     { [ "$OS" = "macOS" ]; }
+is_linux_apt() { [ "$OS" = "Linux" ] && { [ "$DISTRO" = "ubuntu" ] || [ "$DISTRO" = "debian" ]; }; }
+
+# Returns 0 (true) if $1 >= $2  (semantic version comparison)
+version_ge() { printf '%s\n%s\n' "$2" "$1" | sort -V -C; }
+
+# Assert that the current OS/distro is supported (macOS or Ubuntu/Debian).
+# Optional $1: hint message printed on failure (e.g. manual install instructions).
+# Exits with code 1 on unsupported OS or distro.
+assert_supported_os() {
+    local hint="${1:-}"
+    if [ "$OS" = "Linux" ]; then
+        if [ "$DISTRO" = "ubuntu" ] || [ "$DISTRO" = "debian" ]; then
+            return 0
+        fi
+        print_error "Unsupported Linux distribution: $DISTRO"
+        [ -n "$hint" ] && print_info "$hint"
+        exit 1
+    elif [ "$OS" = "macOS" ]; then
+        return 0
+    else
+        print_error "Unsupported OS: $OS"
+        [ -n "$hint" ] && print_info "$hint"
+        exit 1
+    fi
+}
+
+
+# ---[ @include lib/network.sh ]---
+
 # --------------------------------------------------------------------------
-# macOS: Xcode Command Line Tools
+# Mirror variables — overridden by detect_network_region()
+# --------------------------------------------------------------------------
+SLOW_THRESHOLD_MS=5000
+NETWORK_REGION="global"   # china | global | unknown
+USE_CN_MIRRORS=false
+
+GITHUB_RAW_BASE_URL="https://raw.githubusercontent.com"
+DEFAULT_RUBYGEMS_URL="https://rubygems.org"
+DEFAULT_NPM_REGISTRY="https://registry.npmjs.org"
+DEFAULT_MISE_INSTALL_URL="https://mise.run"
+
+CN_CDN_BASE_URL="https://oss.1024code.com"
+CN_MISE_INSTALL_URL="${CN_CDN_BASE_URL}/mise.sh"
+CN_RUBY_PRECOMPILED_URL="${CN_CDN_BASE_URL}/ruby/ruby-{version}.{platform}.tar.gz"
+CN_RUBYGEMS_URL="https://mirrors.aliyun.com/rubygems/"
+CN_NPM_REGISTRY="https://registry.npmmirror.com"
+CN_NODE_MIRROR_URL="https://cdn.npmmirror.com/binaries/node/"
+CN_GEM_BASE_URL="${CN_CDN_BASE_URL}/openclacky"
+CN_GEM_LATEST_URL="${CN_GEM_BASE_URL}/latest.txt"
+
+# Active values (set by detect_network_region)
+MISE_INSTALL_URL="$DEFAULT_MISE_INSTALL_URL"
+RUBYGEMS_INSTALL_URL="$DEFAULT_RUBYGEMS_URL"
+NPM_REGISTRY_URL="$DEFAULT_NPM_REGISTRY"
+NODE_MIRROR_URL=""          # empty = mise default (nodejs.org)
+RUBY_VERSION_SPEC="ruby@3"  # CN mode pins to a specific precompiled build
+
+# --------------------------------------------------------------------------
+# Internal probe helpers
 # --------------------------------------------------------------------------
 
-# More reliable check: CLT git binary must actually exist
+# Probe a single URL; echoes round-trip time in ms, or "timeout"
+_probe_url() {
+    local url="$1"
+    local out http_code total_time
+    out=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" \
+        --connect-timeout 5 --max-time 5 "$url" 2>/dev/null) || true
+    http_code="${out%% *}"
+    total_time="${out#* }"
+    if [ -z "$http_code" ] || [ "$http_code" = "000" ] || [ "$http_code" = "$out" ]; then
+        echo "timeout"; return
+    fi
+    awk -v s="$total_time" 'BEGIN { printf "%d", s * 1000 }'
+}
+
+# Returns 0 (true) if result is slow or unreachable
+_is_slow_or_unreachable() {
+    local r="$1"
+    [ "$r" = "timeout" ] && return 0
+    [ "${r:-9999}" -ge "$SLOW_THRESHOLD_MS" ] 2>/dev/null
+}
+
+_format_probe_time() {
+    local r="$1"
+    [ "$r" = "timeout" ] && echo "timeout" && return
+    awk -v ms="$r" 'BEGIN { printf "%.1fs", ms / 1000 }'
+}
+
+_print_probe_result() {
+    local label="$1" result="$2"
+    if [ "$result" = "timeout" ]; then
+        print_warning "UNREACHABLE  ${label}"
+    elif _is_slow_or_unreachable "$result"; then
+        print_warning "SLOW ($(_format_probe_time "$result"))  ${label}"
+    else
+        print_success "OK ($(_format_probe_time "$result"))  ${label}"
+    fi
+}
+
+# Probe URL up to max_retries times; returns first fast result or last result
+_probe_url_with_retry() {
+    local url="$1" max="${2:-2}" result
+    for _ in $(seq 1 "$max"); do
+        result=$(_probe_url "$url")
+        ! _is_slow_or_unreachable "$result" && { echo "$result"; return 0; }
+    done
+    echo "$result"
+}
+
+# --------------------------------------------------------------------------
+# detect_network_region — sets USE_CN_MIRRORS and active mirror variables
+# --------------------------------------------------------------------------
+detect_network_region() {
+    print_step "Network pre-flight check..."
+    echo ""
+
+    local google_result baidu_result
+    google_result=$(_probe_url "https://www.google.com")
+    baidu_result=$(_probe_url "https://www.baidu.com")
+
+    _print_probe_result "google.com" "$google_result"
+    _print_probe_result "baidu.com"  "$baidu_result"
+
+    local google_ok=false baidu_ok=false
+    ! _is_slow_or_unreachable "$google_result" && google_ok=true
+    ! _is_slow_or_unreachable "$baidu_result"  && baidu_ok=true
+
+    if [ "$google_ok" = true ]; then
+        NETWORK_REGION="global"
+        print_success "Region: global"
+    elif [ "$baidu_ok" = true ]; then
+        NETWORK_REGION="china"
+        print_success "Region: china"
+    else
+        NETWORK_REGION="unknown"
+        print_warning "Region: unknown (both unreachable)"
+    fi
+    echo ""
+
+    if [ "$NETWORK_REGION" = "china" ]; then
+        local cdn_result mirror_result
+        cdn_result=$(_probe_url_with_retry "$CN_MISE_INSTALL_URL")
+        mirror_result=$(_probe_url_with_retry "$CN_RUBYGEMS_URL")
+
+        _print_probe_result "CN CDN (mise/Ruby)" "$cdn_result"
+        _print_probe_result "Aliyun (gem)"       "$mirror_result"
+
+        local cdn_ok=false mirror_ok=false
+        ! _is_slow_or_unreachable "$cdn_result"    && cdn_ok=true
+        ! _is_slow_or_unreachable "$mirror_result" && mirror_ok=true
+
+        if [ "$cdn_ok" = true ] || [ "$mirror_ok" = true ]; then
+            USE_CN_MIRRORS=true
+            MISE_INSTALL_URL="$CN_MISE_INSTALL_URL"
+            RUBYGEMS_INSTALL_URL="$CN_RUBYGEMS_URL"
+            NPM_REGISTRY_URL="$CN_NPM_REGISTRY"
+            NODE_MIRROR_URL="$CN_NODE_MIRROR_URL"
+            RUBY_VERSION_SPEC="ruby@3.4.8"
+            print_info "CN mirrors applied"
+        else
+            print_warning "CN mirrors unreachable — falling back to global sources"
+        fi
+    else
+        local rubygems_result mise_result
+        rubygems_result=$(_probe_url_with_retry "$DEFAULT_RUBYGEMS_URL")
+        mise_result=$(_probe_url_with_retry "$DEFAULT_MISE_INSTALL_URL")
+
+        _print_probe_result "RubyGems" "$rubygems_result"
+        _print_probe_result "mise.run" "$mise_result"
+
+        _is_slow_or_unreachable "$rubygems_result" && print_warning "RubyGems is slow/unreachable."
+        _is_slow_or_unreachable "$mise_result"     && print_warning "mise.run is slow/unreachable."
+
+        USE_CN_MIRRORS=false
+        RUBY_VERSION_SPEC="ruby@3"
+    fi
+
+    echo ""
+}
+
+
+# ---[ @include lib/apt.sh ]---
+
+# Configure apt mirror for CN region and run apt-get update.
+# Guards: only runs on ubuntu/debian ($DISTRO).
+# Relies on $USE_CN_MIRRORS set by detect_network_region (network.sh).
+setup_apt_mirror() {
+    [ "$DISTRO" = "ubuntu" ] || [ "$DISTRO" = "debian" ] || return 0
+
+    if [ "$USE_CN_MIRRORS" = true ]; then
+        print_info "Region: China — configuring Aliyun apt mirror"
+        local codename="${VERSION_CODENAME:-jammy}"
+        local components="main restricted universe multiverse"
+        local arch; arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+        if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then
+            local mirror="https://mirrors.aliyun.com/ubuntu-ports/"
+        else
+            local mirror="https://mirrors.aliyun.com/ubuntu/"
+        fi
+        sudo tee /etc/apt/sources.list > /dev/null <<EOF
+deb ${mirror} ${codename} ${components}
+deb ${mirror} ${codename}-updates ${components}
+deb ${mirror} ${codename}-backports ${components}
+deb ${mirror} ${codename}-security ${components}
+EOF
+        print_success "apt mirror set to Aliyun"
+    else
+        print_info "Region: global — using default apt sources"
+    fi
+
+    sudo apt-get update -qq
+    print_success "apt updated"
+}
+
 _clt_installed() {
     [ -e "/Library/Developer/CommandLineTools/usr/bin/git" ]
 }
 
 ensure_xcode_clt() {
     print_step "Checking Xcode Command Line Tools..."
-
-    if _clt_installed; then
-        print_success "Xcode CLT already installed"
-        return 0
-    fi
+    _clt_installed && { print_success "Xcode CLT already installed"; return 0; }
 
     print_info "Xcode CLT not found — attempting headless install via softwareupdate..."
-
-    # The placeholder file prompts softwareupdate to list CLT packages
     local clt_placeholder="/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
     touch "$clt_placeholder"
 
-    # Find the latest available CLT label
     local clt_label
     clt_label=$(softwareupdate -l 2>/dev/null \
         | grep -B 1 -E 'Command Line Tools' \
         | awk -F'*' '/^ *\*/ {print $2}' \
         | sed -e 's/^ *Label: //' -e 's/^ *//' \
-        | sort -V \
-        | tail -n1)
+        | sort -V | tail -n1)
 
     local headless_ok=false
     if [ -n "$clt_label" ]; then
         print_info "Found package: $clt_label"
-        print_info "Running softwareupdate (may show a system auth dialog)..."
-
-        # Try without sudo first — macOS 14+ can prompt via system dialog
         if softwareupdate -i "$clt_label" --agree-to-license 2>/dev/null; then
             xcode-select --switch "/Library/Developer/CommandLineTools" 2>/dev/null || true
             headless_ok=true
-        # Fallback: try with sudo -n (succeeds only if password is cached)
         elif sudo -n softwareupdate -i "$clt_label" --agree-to-license 2>/dev/null; then
             sudo xcode-select --switch "/Library/Developer/CommandLineTools" 2>/dev/null || true
             headless_ok=true
@@ -99,79 +305,13 @@ ensure_xcode_clt() {
         return 0
     fi
 
-    # Both headless paths failed — tell user to run manually
-    if [ "$headless_ok" = false ]; then
-        print_warning "Headless install failed (sudo password required or package not found)"
-    fi
-
+    [ "$headless_ok" = false ] && print_warning "Headless install failed (sudo password required or package not found)"
     print_error "Could not install Xcode CLT automatically."
     echo ""
-    echo "  Please run this command in your terminal and re-run this script:"
-    echo ""
+    echo "  Please run this command and re-run this script:"
     echo "    sudo xcode-select --install"
     echo ""
-    echo "  Or from System Settings → General → Software Update."
     return 1
-}
-
-# --------------------------------------------------------------------------
-# Linux: build-essential + python3 + git + curl
-# --------------------------------------------------------------------------
-
-# Quick network probe — returns latency in ms or "timeout"
-_probe_url() {
-    local url="$1"
-    local out
-    out=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" \
-        --connect-timeout 5 --max-time 5 "$url" 2>/dev/null) || true
-    local http_code="${out%% *}"
-    local total_time="${out#* }"
-    if [ -z "$http_code" ] || [ "$http_code" = "000" ] || [ "$http_code" = "$out" ]; then
-        echo "timeout"; return
-    fi
-    awk -v s="$total_time" 'BEGIN { printf "%d", s * 1000 }'
-}
-
-_is_slow() {
-    local r="$1"
-    [ "$r" = "timeout" ] && return 0
-    [ "${r:-9999}" -ge 5000 ] 2>/dev/null
-}
-
-# Optionally configure Aliyun apt mirror for CN users
-setup_apt_mirror() {
-    print_info "Detecting network region for apt mirror..."
-    local google baidu
-    google=$(_probe_url "https://www.google.com")
-    baidu=$(_probe_url "https://www.baidu.com")
-
-    if ! _is_slow "$google"; then
-        print_info "Region: global — using default apt sources"
-        return 0
-    fi
-
-    if ! _is_slow "$baidu"; then
-        print_info "Region: China — configuring Aliyun apt mirror"
-        local codename="${VERSION_CODENAME:-jammy}"
-        local components="main restricted universe multiverse"
-        local arch
-        arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
-        # arm64 uses ubuntu-ports mirror; amd64/i386 uses standard ubuntu mirror
-        if [ "$arch" = "arm64" ] || [ "$arch" = "aarch64" ]; then
-            local mirror="https://mirrors.aliyun.com/ubuntu-ports/"
-        else
-            local mirror="https://mirrors.aliyun.com/ubuntu/"
-        fi
-        sudo tee /etc/apt/sources.list > /dev/null <<EOF
-deb ${mirror} ${codename} ${components}
-deb ${mirror} ${codename}-updates ${components}
-deb ${mirror} ${codename}-backports ${components}
-deb ${mirror} ${codename}-security ${components}
-EOF
-        print_success "Aliyun apt mirror configured"
-    else
-        print_warning "Network region unknown — using default apt sources"
-    fi
 }
 
 ensure_linux_deps() {
@@ -190,27 +330,18 @@ ensure_linux_deps() {
 
     print_info "Missing: ${missing[*]}"
 
-    if [ "$DISTRO" = "ubuntu" ] || [ "$DISTRO" = "debian" ]; then
-        setup_apt_mirror
-        print_info "Running apt-get update..."
-        sudo apt-get update -qq
-        print_info "Installing: ${missing[*]}"
-        sudo apt-get install -y "${missing[@]}"
-        print_success "Dependencies installed"
-    else
-        print_error "Unsupported Linux distribution: $DISTRO"
-        print_info "Please install manually: gcc python3 git curl (or equivalent for your distro)"
-        return 1
-    fi
+    detect_network_region
+    setup_apt_mirror
+    sudo apt-get install -y "${missing[@]}"
+    print_success "Dependencies installed"
 }
 
 # --------------------------------------------------------------------------
-# Verify key tools are available after install
+# Verify key tools are present
 # --------------------------------------------------------------------------
 verify_deps() {
     print_step "Verifying installed tools..."
     local failed=false
-
     for tool in python3 git curl make; do
         if command_exists "$tool"; then
             print_success "$tool  $(command -v "$tool")"
@@ -219,10 +350,7 @@ verify_deps() {
             failed=true
         fi
     done
-
-    if [ "$failed" = true ]; then
-        print_warning "Some tools are still missing. You may need to restart your shell."
-    fi
+    [ "$failed" = true ] && print_warning "Some tools still missing. You may need to restart your shell."
 }
 
 # --------------------------------------------------------------------------
@@ -238,21 +366,14 @@ main() {
     [ "$OS" = "Linux" ] && print_info "Distro: $DISTRO"
     echo ""
 
+    assert_supported_os
+
     case "$OS" in
-        macOS)
-            ensure_xcode_clt || exit 1
-            ;;
-        Linux)
-            ensure_linux_deps || exit 1
-            ;;
-        *)
-            print_error "Unsupported OS: $OS"
-            exit 1
-            ;;
+        macOS) ensure_xcode_clt  || exit 1 ;;
+        Linux) ensure_linux_deps || exit 1 ;;
     esac
 
     verify_deps
-
     echo ""
     print_success "Done. System dependencies are ready."
     echo ""
