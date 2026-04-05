@@ -99,11 +99,17 @@ module Clacky
 
         # Generate a human-readable summary using the tool's format_call method
         summary = tool_call_summary(name, args_data)
+
+        # Remember the current in-flight tool call so replay_live_state can re-emit it
+        # when a browser tab re-subscribes after switching sessions.
+        @live_tool_call = { name: name, args: args_data, summary: summary }
+
         emit("tool_call", name: name, args: args_data, summary: summary)
         forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
       end
 
       def show_tool_result(result)
+        @live_tool_call = nil   # tool finished — no longer in-flight
         emit("tool_result", result: result)
         forward_to_subscribers { |sub| sub.show_tool_result(result) }
       end
@@ -204,14 +210,21 @@ module Clacky
 
       def show_progress(message = nil, prefix_newline: true, output_buffer: nil)
         @progress_start_time = Time.now
+        @live_progress_message = message
+        # Reset stdout buffer for each new command so re-subscribe only replays current run
+        @live_stdout_buffer = []
         emit("progress", message: message, status: "start")
         forward_to_subscribers { |sub| sub.show_progress(message) }
       end
 
       # Stream shell stdout/stderr lines to the browser while a command is running.
-      # Called periodically from the progress_timer thread in agent.rb.
+      # Called immediately via on_output callback from shell.rb — no polling delay.
+      # Lines are also buffered in @live_stdout_buffer so late-joining subscribers
+      # (e.g. user switches away and back) can receive a replay of what they missed.
       def show_tool_stdout(lines)
         return if lines.nil? || lines.empty?
+        @live_stdout_buffer ||= []
+        @live_stdout_buffer.concat(lines)
         emit("tool_stdout", lines: lines)
         # Not forwarded to IM subscribers — too noisy
       end
@@ -219,8 +232,36 @@ module Clacky
       def clear_progress
         elapsed = @progress_start_time ? (Time.now - @progress_start_time).round(1) : 0
         @progress_start_time = nil
+        @live_progress_message = nil
+        @live_tool_call = nil   # command finished — nothing left to replay
+        # Keep @live_stdout_buffer intact — it will be reset on the next show_progress call.
+        # This allows a brief replay window even after the command finishes.
         emit("progress", status: "stop", elapsed: elapsed)
         forward_to_subscribers { |sub| sub.clear_progress }
+      end
+
+      # Replay in-progress command state to a newly (re-)subscribing browser tab.
+      # Called by http_server.rb after the subscribe handshake when the session
+      # is still running a shell command.  Without this, switching sessions and
+      # switching back results in a blank progress area — the progress event and
+      # all tool_stdout lines that fired while the user was away are lost.
+      # Replay live state when a client re-subscribes (e.g. after switching sessions).
+      #
+      # Plan C: we do NOT re-emit tool_call here.
+      # The tool-item is already rendered in the DOM via the normal flow.
+      # We only replay:
+      #   1. progress(start) — restores the spinner / progress bar
+      #   2. tool_stdout     — fills in all stdout received so far
+      #
+      # The frontend's appendToolStdout will attach to the last visible .tool-item
+      # even when _liveLastToolItem is null (after the tab re-loaded).
+      def replay_live_state
+        return unless @live_progress_message
+
+        emit("progress", message: @live_progress_message, status: "start")
+
+        buf = @live_stdout_buffer
+        emit("tool_stdout", lines: buf) if buf && !buf.empty?
       end
 
       # === State updates ===

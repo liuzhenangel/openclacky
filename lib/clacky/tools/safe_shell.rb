@@ -33,7 +33,7 @@ module Clacky
         required: ["command"]
       }
 
-      def execute(command:, timeout: nil, max_output_lines: 1000, skip_safety_check: false, output_buffer: nil, working_dir: nil)
+      def execute(command:, timeout: nil, max_output_lines: 1000, skip_safety_check: false, on_output: nil, working_dir: nil)
         # Use provided working_dir or fall back to current process directory
         project_root = working_dir || Dir.pwd
 
@@ -59,7 +59,7 @@ module Clacky
           hard_timeout = calculate_hard_timeout(command, timeout)
 
           # 4. Call parent class execution method
-          result = super(command: safe_command, soft_timeout: soft_timeout, hard_timeout: hard_timeout, max_output_lines: max_output_lines, output_buffer: output_buffer, working_dir: working_dir)
+          result = super(command: safe_command, soft_timeout: soft_timeout, hard_timeout: hard_timeout, max_output_lines: max_output_lines, on_output: on_output, working_dir: working_dir)
 
           # 4a. If macOS xcode-select shim detected, replace stderr with actionable message
           if xcode_tools_missing?(result[:stderr])

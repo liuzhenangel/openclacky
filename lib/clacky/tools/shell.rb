@@ -90,7 +90,7 @@ module Clacky
         'go build'
       ].freeze
 
-      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000, output_buffer: nil, working_dir: nil)
+      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000, on_output: nil, working_dir: nil)
         require "open3"
         require "stringio"
 
@@ -99,15 +99,6 @@ module Clacky
         stdout_buffer = EncodingSafeBuffer.new
         stderr_buffer = EncodingSafeBuffer.new
         soft_timeout_triggered = false
-
-        # Store output buffer reference for real-time access (use LimitStack for memory efficiency)
-        @output_buffer = output_buffer
-        if @output_buffer
-          @output_buffer[:stdout_lines] = Utils::LimitStack.new(max_size: 1000)
-          @output_buffer[:stderr_lines] = Utils::LimitStack.new(max_size: 200)
-        end
-        @stdout_buffer = stdout_buffer
-        @stderr_buffer = stderr_buffer
 
         # pgroup: 0 puts the child in its own process group so that Ctrl-C
         # (SIGINT sent to the terminal's foreground group) does NOT propagate
@@ -180,11 +171,14 @@ module Clacky
                       begin
                         data = io.read_nonblock(4096)
                         if io == stdout
+                          utf8 = Clacky::Utils::Encoding.to_utf8(data)
                           stdout_buffer.write(data)
+                          on_output.call(:stdout, utf8) if on_output
                         else
+                          utf8 = Clacky::Utils::Encoding.to_utf8(data)
                           stderr_buffer.write(data)
+                          on_output.call(:stderr, utf8) if on_output
                         end
-                        update_output_buffer
                       rescue IO::WaitReadable, EOFError
                       end
                     end
@@ -596,22 +590,6 @@ module Clacky
         end.join
       end
 
-      # Update shared output buffer for real-time access
-      # Uses LimitStack to automatically manage memory and keep only recent output
-      private def update_output_buffer
-        return unless @output_buffer
-
-        stdout_lines = @stdout_buffer.string.lines
-        stderr_lines = @stderr_buffer.string.lines
-
-        @output_buffer[:stdout_lines].clear
-        @output_buffer[:stdout_lines].push_lines(stdout_lines)
-
-        @output_buffer[:stderr_lines].clear
-        @output_buffer[:stderr_lines].push_lines(stderr_lines)
-
-        @output_buffer[:timestamp] = Time.now
-      end
     end
   end
 end

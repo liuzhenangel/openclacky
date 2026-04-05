@@ -125,12 +125,12 @@ RSpec.describe Clacky::Tools::Shell do
       expect(tool.wrap_with_shell("ls")).to eq("ls")
     end
 
-    it "wraps with -l -i when shell configs have changed" do
-      shell = ENV['SHELL'] || '/bin/bash'
+    it "wraps with -l and sources rc file when shell configs have changed" do
       allow(tool).to receive(:shell_configs_changed?).and_return(true)
+      allow(tool).to receive(:shell_config_hashes).and_return({ "/home/user/.zshrc" => "abc123" })
       wrapped = tool.wrap_with_shell("ls")
       expect(wrapped).to include("-l")
-      expect(wrapped).to include("-i")
+      expect(wrapped).to include("source")
       expect(wrapped).to include("ls")
     end
   end
@@ -328,6 +328,17 @@ RSpec.describe Clacky::Tools::Shell do
       result = tool.send(:format_waiting_input_result, "apt-get install vim", "", "", interaction, 1000)
       expect(result[:state]).to eq("WAITING_INPUT")
       expect(result[:message]).not_to include("sudo -S")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Encoding regression — e2e
+  # Reproduces: Tool safe_shell denied: "\xE2" from ASCII-8BIT to UTF-8
+  # ---------------------------------------------------------------------------
+  describe "#execute — multibyte UTF-8 encoding regression" do
+    it "does not raise encoding error when command outputs multibyte UTF-8 characters" do
+      result = tool.execute(command: "echo '你好世界 → ✓'")
+      expect { JSON.generate(tool.format_result_for_llm(result)) }.not_to raise_error
     end
   end
 

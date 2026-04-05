@@ -1799,6 +1799,9 @@ module Clacky
             conn.session_id = session_id
             subscribe(session_id, conn)
             conn.send_json(type: "subscribed", session_id: session_id)
+            # If a shell command is still running, replay progress + buffered stdout
+            # to the newly subscribed tab so it sees the live state it may have missed.
+            @registry.with_session(session_id) { |s| s[:ui]&.replay_live_state }
           else
             conn.send_json(type: "error", message: "Session not found: #{session_id}")
           end

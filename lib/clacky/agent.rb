@@ -647,35 +647,24 @@ module Clacky
           # Automatic progress display after 2 seconds for any tool execution
           progress_shown = false
           progress_timer = nil
-          output_buffer = nil
 
           if @ui
             progress_message = build_tool_progress_message(call[:name], args)
 
-            # For shell commands, create shared output buffer
-            if call[:name] == "shell" || call[:name] == "safe_shell"
-              output_buffer = { content: "", timestamp: Time.now }
-              args[:output_buffer] = output_buffer
+            # For shell/safe_shell: inject on_output callback for real-time stdout streaming.
+            # The callback fires immediately on each read_nonblock chunk — no polling delay.
+            if (call[:name] == "shell" || call[:name] == "safe_shell") &&
+               @ui.respond_to?(:show_tool_stdout)
+              args[:on_output] = ->(stream, data) {
+                @ui.show_tool_stdout([data]) if stream == :stdout
+              }
             end
 
             progress_timer = Thread.new do
               sleep 2
-              @ui.show_progress(progress_message, prefix_newline: false, output_buffer: output_buffer)
+              @ui.show_progress(progress_message, prefix_newline: false)
               progress_shown = true
-
-              # For shell commands: stream new stdout lines to WebUI as they arrive
-              if output_buffer && @ui.respond_to?(:show_tool_stdout)
-                last_sent_count = 0
-                loop do
-                  sleep 1
-                  stdout_lines = output_buffer[:stdout_lines]&.to_a || []
-                  new_lines = stdout_lines[last_sent_count..]
-                  if new_lines && !new_lines.empty?
-                    @ui.show_tool_stdout(new_lines)
-                    last_sent_count = stdout_lines.size
-                  end
-                end
-              end
+              # Streaming is handled by on_output callback — no polling loop needed here
             end
           end
 
