@@ -13,6 +13,10 @@ module Clacky
     # splitting, JSON serialization — never sees invalid byte sequences.
     class EncodingSafeBuffer
       def initialize
+        # Use ASCII-8BIT backing store to accept raw bytes from popen3 without
+        # encoding conflicts.  Scrubbing happens on write; the string method
+        # re-labels the result as UTF-8 on the way out so callers (JSON.generate,
+        # regex, etc.) always see a properly-tagged UTF-8 string.
         @io = StringIO.new("".b)
       end
 
@@ -20,13 +24,17 @@ module Clacky
         return unless data && !data.empty?
 
         # Shell output arrives as binary (ASCII-8BIT) bytes.  Use the shared
-        # helper which re-labels encoding as UTF-8 and scrubs only genuinely
-        # invalid sequences, preserving multibyte characters (e.g. CJK).
-        @io.write(Clacky::Utils::Encoding.to_utf8(data))
+        # helper which scrubs only genuinely invalid sequences, preserving
+        # multibyte characters (e.g. CJK).  The result is written as raw bytes
+        # into the ASCII-8BIT buffer.
+        @io.write(Clacky::Utils::Encoding.to_utf8(data).b)
       end
 
       def string
-        @io.string
+        # Re-label the accumulated bytes as UTF-8.  By this point every byte
+        # has already been scrubbed by to_utf8 on write, so force_encoding is
+        # safe and avoids an unnecessary copy.
+        @io.string.force_encoding("UTF-8")
       end
     end
 
