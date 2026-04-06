@@ -32,8 +32,8 @@ module Clacky
 
     # Images wider than this will be downscaled before sending to LLM (pixels)
     IMAGE_MAX_WIDTH = 800
-    # Hard limit: if an image can't be resized, refuse to send it if larger than this
-    IMAGE_MAX_BASE64_BYTES = 150_000
+    # Hard limit for images that can't be resized: Anthropic/Bedrock vision API supports up to 5MB
+    IMAGE_MAX_BASE64_BYTES = 5_000_000
 
     BINARY_EXTENSIONS = %w[
       .png .jpg .jpeg .gif .webp .bmp .tiff .ico .svg
@@ -202,12 +202,12 @@ module Clacky
 
       return result if result
 
-      # No tool available — enforce hard size limit
+      # No resize tool available — enforce API hard size limit (5MB)
       if b64.bytesize > IMAGE_MAX_BASE64_BYTES
         size_kb = b64.bytesize / 1024
-        limit_kb = IMAGE_MAX_BASE64_BYTES / 1024
+        limit_mb = IMAGE_MAX_BASE64_BYTES / 1_000_000
         raise ArgumentError,
-          "Image too large to send (#{size_kb}KB > #{limit_kb}KB). " \
+          "Image too large to send (#{size_kb}KB > #{limit_mb}MB). " \
           "Install ImageMagick (`brew install imagemagick`) to enable automatic resizing."
       end
       b64

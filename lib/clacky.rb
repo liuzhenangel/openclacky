@@ -130,6 +130,7 @@ require_relative "clacky/cli"
 module Clacky
   class AgentInterrupted < Exception; end  # Inherit from Exception to bypass rescue StandardError
   class AgentError < StandardError; end
+  class BadRequestError < AgentError; end  # 400 errors — our request was malformed, history should be rolled back
   class RetryableError < StandardError; end  # Transient errors that should be retried (5xx, HTML response, rate limit)
   class ToolCallError < AgentError; end  # Raised when tool call fails due to invalid parameters
   # BrowserManager singleton: Clacky::BrowserManager.instance

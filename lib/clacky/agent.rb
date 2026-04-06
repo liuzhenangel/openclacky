@@ -432,6 +432,11 @@ module Clacky
         }
         Clacky::Logger.error("agent_run_error", error: e)
 
+        # 400 errors mean our request was malformed — roll back history so the bad
+        # message is not replayed on the next user turn.
+        # Other errors (auth, network, etc.) leave history intact for retry.
+        @pending_error_rollback = true if e.is_a?(Clacky::BadRequestError)
+
         # Build error result for session data, but let CLI handle error display
         result = build_result(:error, error: e.message)  # rubocop:disable Lint/UselessAssignment
         raise

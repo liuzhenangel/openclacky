@@ -291,9 +291,19 @@ module Clacky
 
       case response.status
       when 400
-        hint = error_message.downcase.match?(/unavailable|quota/) ? " (possibly out of credits)" : ""
-        raise AgentError, "API request failed (400): #{error_message}#{hint}"
+        # Well-behaved APIs (Anthropic, OpenAI) never put quota/availability issues in 400.
+        # However, some proxy/relay providers do — so we inspect the message first.
+        # Also, Bedrock returns ThrottlingException as 400 instead of 429.
+        if error_message.match?(/ThrottlingException|unavailable|quota/i)
+          hint = error_message.match?(/quota/i) ? " (possibly out of credits)" : ""
+          raise RetryableError, "Rate limit or service issue (400): #{error_message}#{hint}"
+        end
+
+        # True bad request — our message was malformed. Roll back history so the
+        # broken message is not replayed on the next user turn.
+        raise BadRequestError, "API request failed (400): #{error_message}"
       when 401 then raise AgentError, "Invalid API key"
+      when 402 then raise AgentError, "Billing or payment issue (possibly out of credits): #{error_message}"
       when 403 then raise AgentError, "Access denied: #{error_message}"
       when 404 then raise AgentError, "API endpoint not found: #{error_message}"
       when 429 then raise RetryableError, "Rate limit exceeded, please wait a moment"
