@@ -448,18 +448,9 @@ module Clacky
       end
 
       private def png_downscale_base64(b64, max_width)
-        require "chunky_png"
-        image = ChunkyPNG::Image.from_blob(Base64.strict_decode64(b64))
-        src_w, src_h = image.width, image.height
-        before_kb    = b64.bytesize / 1024
-        dst_h        = (src_h * max_width.to_f / src_w).round
-        image.resample_nearest_neighbor!(max_width, dst_h)
-        result    = Base64.strict_encode64(image.to_blob)
-        after_kb  = result.bytesize / 1024
-        Clacky::Logger.error("screenshot resized",
-          from: "#{src_w}x#{src_h} (#{before_kb}KB)",
-          to:   "#{max_width}x#{dst_h} (#{after_kb}KB)")
-        result
+        Clacky::Utils::FileProcessor.downscale_image_base64(
+          b64, "image/png", max_width: max_width
+        )
       end
 
       # Save a base64-encoded PNG screenshot to disk and return the file path.

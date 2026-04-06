@@ -7,7 +7,7 @@ module Clacky
   module Tools
     class FileReader < Base
       self.tool_name = "file_reader"
-      self.tool_description = "Read contents of a file from the filesystem."
+      self.tool_description = "Read contents of a file from the filesystem. Supports text files, images (PNG/JPG/GIF/WEBP), and documents (PDF/DOCX/XLSX/PPTX)."
       self.tool_category = "file_system"
       self.tool_parameters = {
         type: "object",

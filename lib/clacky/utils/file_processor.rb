@@ -30,6 +30,11 @@ module Clacky
     # Alias used by FileReader tool
     MAX_FILE_SIZE = MAX_FILE_BYTES
 
+    # Images wider than this will be downscaled before sending to LLM (pixels)
+    IMAGE_MAX_WIDTH = 800
+    # Hard limit: if an image can't be resized, refuse to send it if larger than this
+    IMAGE_MAX_BASE64_BYTES = 150_000
+
     BINARY_EXTENSIONS = %w[
       .png .jpg .jpeg .gif .webp .bmp .tiff .ico .svg
       .pdf
@@ -175,6 +180,39 @@ module Clacky
       MIME_TYPES[File.extname(path).downcase] || "application/octet-stream"
     end
 
+    # Downscale a base64-encoded image so its width is at most max_width pixels.
+    #
+    # Strategy:
+    #   PNG  → chunky_png (pure Ruby, always available as gem dependency)
+    #   other formats (JPG/WEBP/GIF) → sips on macOS, `convert` (ImageMagick) on Linux
+    #   fallback (no CLI tool) → return as-is, but raise if larger than IMAGE_MAX_BASE64_BYTES
+    #
+    # @param b64       [String]  base64-encoded image data
+    # @param mime_type [String]  e.g. "image/png", "image/jpeg", "image/webp"
+    # @param max_width [Integer] maximum output width in pixels (default: IMAGE_MAX_WIDTH)
+    # @return [String] base64-encoded (possibly downscaled) image data
+    def self.downscale_image_base64(b64, mime_type, max_width: IMAGE_MAX_WIDTH)
+      require "base64"
+
+      result = if mime_type == "image/png"
+                 downscale_png_chunky(b64, max_width)
+               else
+                 downscale_via_cli(b64, mime_type, max_width)
+               end
+
+      return result if result
+
+      # No tool available — enforce hard size limit
+      if b64.bytesize > IMAGE_MAX_BASE64_BYTES
+        size_kb = b64.bytesize / 1024
+        limit_kb = IMAGE_MAX_BASE64_BYTES / 1024
+        raise ArgumentError,
+          "Image too large to send (#{size_kb}KB > #{limit_kb}KB). " \
+          "Install ImageMagick (`brew install imagemagick`) to enable automatic resizing."
+      end
+      b64
+    end
+
     def self.file_to_base64(path)
       require "base64"
       ext  = File.extname(path).downcase
@@ -182,6 +220,8 @@ module Clacky
       raise ArgumentError, "File too large: #{path}" if size > MAX_FILE_BYTES
       mime = MIME_TYPES[ext] || "application/octet-stream"
       data = Base64.strict_encode64(File.binread(path))
+      # Downscale images before sending to LLM to reduce token cost
+      data = downscale_image_base64(data, mime) if mime.start_with?("image/")
       { format: ext[1..], mime_type: mime, size_bytes: size, base64_data: data }
     end
 
@@ -200,7 +240,10 @@ module Clacky
              when "webp"        then "image/webp"
              else "image/#{ext}"
              end
-      "data:#{mime};base64,#{Base64.strict_encode64(File.binread(path))}"
+      b64 = Base64.strict_encode64(File.binread(path))
+      # Downscale images before sending to LLM to reduce token cost
+      b64 = downscale_image_base64(b64, mime)
+      "data:#{mime};base64,#{b64}"
     end
 
     # ---------------------------------------------------------------------------
@@ -257,7 +300,84 @@ module Clacky
       raw.encode("UTF-8", "binary", invalid: :replace, undef: :replace, replace: "?")
     end
 
-    private_class_method :parse_zip_listing, :save_preview, :sanitize_filename, :read_text_with_encoding_fallback
+    # ---------------------------------------------------------------------------
+    # Image downscale helpers (private)
+    # ---------------------------------------------------------------------------
+
+    # Downscale a PNG using chunky_png (pure Ruby — always available).
+    # Returns downscaled base64, or original base64 if already within max_width.
+    def self.downscale_png_chunky(b64, max_width)
+      require "chunky_png"
+      require "base64"
+      image = ChunkyPNG::Image.from_blob(Base64.strict_decode64(b64))
+      return b64 if image.width <= max_width
+
+      src_w, src_h = image.width, image.height
+      dst_h = (src_h * max_width.to_f / src_w).round
+      image.resample_nearest_neighbor!(max_width, dst_h)
+      before_kb = b64.bytesize / 1024
+      result    = Base64.strict_encode64(image.to_blob)
+      after_kb  = result.bytesize / 1024
+      Clacky::Logger.debug("image_downscaled",
+        format: "png",
+        from: "#{src_w}x#{src_h} (#{before_kb}KB)",
+        to:   "#{max_width}x#{dst_h} (#{after_kb}KB)")
+      result
+    rescue => e
+      Clacky::Logger.debug("image_downscale_skipped", format: "png", reason: e.message)
+      nil
+    end
+
+    # Downscale a non-PNG image using CLI tools:
+    #   macOS → sips (built-in, no extra deps)
+    #   Linux → convert (ImageMagick, must be installed)
+    # Returns downscaled base64, or nil if no tool is available.
+    def self.downscale_via_cli(b64, mime_type, max_width)
+      require "base64"
+      require "tmpdir"
+
+      ext = mime_type.split("/").last
+      ext = "jpg" if ext == "jpeg"
+
+      # Write input to a temp file
+      Dir.mktmpdir("clacky-img") do |dir|
+        input  = File.join(dir, "input.#{ext}")
+        output = File.join(dir, "output.#{ext}")
+        File.binwrite(input, Base64.strict_decode64(b64))
+
+        before_kb = b64.bytesize / 1024
+        success = false
+
+        if RUBY_PLATFORM.include?("darwin")
+          # macOS: sips is always available
+          success = system("sips", "-Z", max_width.to_s, input, "--out", output,
+                           out: File::NULL, err: File::NULL)
+        else
+          # Linux/other: try ImageMagick convert
+          if system("which convert > /dev/null 2>&1")
+            success = system("convert", input, "-resize", "#{max_width}x>",
+                             output, out: File::NULL, err: File::NULL)
+          end
+        end
+
+        return nil unless success && File.exist?(output) && File.size(output) > 0
+
+        result    = Base64.strict_encode64(File.binread(output))
+        after_kb  = result.bytesize / 1024
+        Clacky::Logger.debug("image_downscaled",
+          format: ext,
+          from: "#{before_kb}KB",
+          to:   "#{after_kb}KB (max #{max_width}px wide)")
+        result
+      end
+    rescue => e
+      Clacky::Logger.debug("image_downscale_skipped", mime: mime_type, reason: e.message)
+      nil
+    end
+
+    private_class_method :parse_zip_listing, :save_preview, :sanitize_filename,
+                         :read_text_with_encoding_fallback,
+                         :downscale_png_chunky, :downscale_via_cli
   end
   end
 end
