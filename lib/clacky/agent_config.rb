@@ -398,6 +398,81 @@ module Clacky
       find_model_by_type("lite")
     end
 
+    # How long to stay on the fallback model before probing the primary again.
+    FALLBACK_COOLING_OFF_SECONDS = 30 * 60  # 30 minutes
+
+    # Look up the fallback model name for the given model name.
+    # Uses the provider preset's fallback_models table.
+    # Returns nil if no fallback is configured for this model.
+    # @param model_name [String] the primary model name (e.g. "abs-claude-sonnet-4-6")
+    # @return [String, nil]
+    def fallback_model_for(model_name)
+      m = current_model
+      return nil unless m
+
+      provider_id = Clacky::Providers.find_by_base_url(m["base_url"])
+      return nil unless provider_id
+
+      Clacky::Providers.fallback_model(provider_id, model_name)
+    end
+
+    # Switch to fallback model and start the cooling-off clock.
+    # Idempotent — calling again while already in :fallback_active renews the timestamp.
+    # @param fallback_model_name [String] the fallback model to use
+    def activate_fallback!(fallback_model_name)
+      @fallback_state = :fallback_active
+      @fallback_since = Time.now
+      @fallback_model  = fallback_model_name
+    end
+
+    # Called at the start of every call_llm.
+    # If cooling-off has expired, transition from :fallback_active → :probing
+    # so the next request will silently test the primary model.
+    # No-op in any other state.
+    def maybe_start_probing
+      return unless @fallback_state == :fallback_active
+      return unless @fallback_since && (Time.now - @fallback_since) >= FALLBACK_COOLING_OFF_SECONDS
+
+      @fallback_state = :probing
+    end
+
+    # Called when a successful API response is received.
+    # If we were :probing (testing primary after cooling-off), this confirms
+    # the primary model is healthy again and resets everything.
+    # No-op in :primary_ok or :fallback_active states.
+    def confirm_fallback_ok!
+      return unless @fallback_state == :probing
+
+      @fallback_state = nil
+      @fallback_since = nil
+      @fallback_model = nil
+    end
+
+    # Returns true when a fallback model is currently being used
+    # (:fallback_active or :probing states).
+    def fallback_active?
+      @fallback_state == :fallback_active || @fallback_state == :probing
+    end
+
+    # Returns true only when we are silently probing the primary model.
+    def probing?
+      @fallback_state == :probing
+    end
+
+    # The effective model name to use for API calls.
+    # - :primary_ok / nil → configured model_name (primary)
+    # - :fallback_active   → fallback model
+    # - :probing           → configured model_name (trying primary silently)
+    def effective_model_name
+      case @fallback_state
+      when :fallback_active
+        @fallback_model || model_name
+      else
+        # :primary_ok (nil) and :probing both use the primary model
+        model_name
+      end
+    end
+
     # Get current model configuration
     # Looks for type: default first, falls back to current_model_index
     def current_model

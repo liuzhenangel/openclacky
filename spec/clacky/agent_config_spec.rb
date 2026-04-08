@@ -821,6 +821,14 @@ RSpec.describe Clacky::AgentConfig do
       expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/")).to eq("clackyai")
     end
 
+    it "matches sub-path variants like /v1" do
+      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1")).to eq("clackyai")
+    end
+
+    it "matches sub-path variants like /v1/" do
+      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1/")).to eq("clackyai")
+    end
+
     it "returns nil for unknown base URLs" do
       expect(Clacky::Providers.find_by_base_url("https://unknown.example.com")).to be_nil
     end

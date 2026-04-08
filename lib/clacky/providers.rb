@@ -60,6 +60,11 @@ module Clacky
           "abs-claude-sonnet-4-6",
           "abs-claude-haiku-4-5"
         ],
+        # Fallback chain: if a model is unavailable, try the next one in order.
+        # Keys are primary model names; values are the fallback model to use instead.
+        "fallback_models" => {
+          "abs-claude-sonnet-4-6" => "abs-claude-sonnet-4-5"
+        },
         "website_url" => "https://clacky.ai"
       }.freeze,
 
@@ -141,13 +146,28 @@ module Clacky
         preset&.dig("lite_model")
       end
 
-      # Find provider ID by base URL
+      # Get the fallback model for a given model within a provider.
+      # Returns nil if no fallback is defined for that model.
+      # @param provider_id [String] The provider identifier
+      # @param model [String] The primary model name
+      # @return [String, nil] The fallback model name or nil
+      def fallback_model(provider_id, model)
+        preset = PRESETS[provider_id]
+        preset&.dig("fallback_models", model)
+      end
+
+      # Find provider ID by base URL.
+      # Matches if the given URL starts with the provider's base_url (after normalisation),
+      # so both exact matches and sub-path variants (e.g. "/v1") are recognised.
       # @param base_url [String] The base URL to look up
       # @return [String, nil] The provider ID or nil if not found
       def find_by_base_url(base_url)
         return nil if base_url.nil? || base_url.empty?
         normalized = base_url.to_s.chomp("/")
-        PRESETS.find { |_id, preset| preset["base_url"].to_s.chomp("/") == normalized }&.first
+        PRESETS.find do |_id, preset|
+          preset_base = preset["base_url"].to_s.chomp("/")
+          normalized == preset_base || normalized.start_with?("#{preset_base}/")
+        end&.first
       end
     end
   end

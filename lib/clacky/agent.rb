@@ -159,9 +159,9 @@ module Clacky
       }
     end
 
-    # Get current model name
+    # Get current model name (respects any active fallback override)
     private def current_model
-      @config.model_name
+      @config.effective_model_name
     end
 
     # Rename this session. Called by auto-naming (first message) or user explicit rename.
