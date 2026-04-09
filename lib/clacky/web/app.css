@@ -1257,7 +1257,7 @@ body {
 #btn-welcome-new:hover { background: var(--color-button-primary-hover); }
 
 /* ── Chat panel ──────────────────────────────────────────────────────────── */
-#chat-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#chat-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 #chat-header {
   padding: 12px 20px;
   display: flex;
@@ -1360,6 +1360,36 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+
+/* New message notification banner */
+.new-message-banner {
+  position: absolute;
+  bottom: 80px; /* Above input area (input-area height ~60px + gap) */
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-accent-primary);
+  color: var(--color-button-primary-text);
+  padding: 10px 20px;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+  transition: all 0.2s ease;
+  user-select: none;
+  pointer-events: auto;
+  border: 1px solid var(--color-accent-hover);
+}
+.new-message-banner:hover {
+  transform: translateX(-50%) translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  background: var(--color-accent-hover);
+}
+.new-message-banner:active {
+  transform: translateX(-50%) translateY(-1px);
+}
+
 .msg {
   padding: 12px 16px;
   border-radius: 8px;
