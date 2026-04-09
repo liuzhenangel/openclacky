@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.28] - 2026-04-10
+
+### Added
+- **Creator menu**: new creator-focused UI for managing brand skills and customizations
+- **Provider fallback system**: automatic fallback to secondary AI providers when primary provider fails
+- **Chinese localization**: full UI translation for skill descriptions and session lists
+- **Session scroll improvements**: better session navigation and scrolling behavior in Web UI
+- **Brand logo support**: custom logos and icons for white-label deployments
+
+### Improved
+- **Browser setup skill**: enhanced browser-setup SKILL with more detailed instructions and error handling
+- **Browser port detection**: more robust detection logic for Chrome/Edge debugging port
+
+### More
+- Test suite improvements and fixes
+
 ## [0.9.27] - 2026-04-07
 
 ### Added
