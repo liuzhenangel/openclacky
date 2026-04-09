@@ -64,8 +64,13 @@ module Clacky
       Thread.new do
         Thread.current.name = "browser-manager-start"
         @mutex.synchronize { ensure_process! }
+      rescue Clacky::BrowserNotReachableError => e
+        # Expected: Chrome not running yet — will start lazily on first use
+        Clacky::Logger.debug("[BrowserManager] Skipping pre-warm: Chrome not running")
       rescue StandardError => e
-        Clacky::Logger.warn("[BrowserManager] Pre-warm failed: #{e.message}")
+        # Unexpected error (handshake failure, port conflict, etc.)
+        msg = e.message.to_s.lines.first&.strip || e.message.to_s
+        Clacky::Logger.warn("[BrowserManager] Pre-warm failed: #{msg}")
       end
     end
 
@@ -89,8 +94,13 @@ module Clacky
         Thread.new do
           Thread.current.name = "browser-manager-reload"
           @mutex.synchronize { ensure_process! }
+        rescue Clacky::BrowserNotReachableError => e
+          # Expected: Chrome not running yet — will start lazily on first use
+          Clacky::Logger.debug("[BrowserManager] Skipping reload start: Chrome not running")
         rescue StandardError => e
-          Clacky::Logger.warn("[BrowserManager] Reload start failed: #{e.message}")
+          # Unexpected error (handshake failure, port conflict, etc.)
+          msg = e.message.to_s.lines.first&.strip || e.message.to_s
+          Clacky::Logger.warn("[BrowserManager] Reload start failed: #{msg}")
         end
       else
         Clacky::Logger.info("[BrowserManager] Browser disabled after reload — daemon not started")
