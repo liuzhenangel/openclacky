@@ -108,7 +108,13 @@ module Clacky
         # acquiring /dev/tty as a controlling terminal, which triggers SIGTTIN
         # when the process is not in the terminal's foreground group.
         # Instead, wrap_with_shell sources the user's rc file explicitly.
-        popen3_opts = { pgroup: 0 }
+        #
+        # close_others: true prevents the child from inheriting file descriptors
+        # other than stdin/stdout/stderr. This is critical when running inside
+        # openclacky server — without it, user commands (rails s, npm run dev, etc.)
+        # inherit the server's listening socket (port 7070), causing port conflicts
+        # when the child process spawns its own server that persists after shell exit.
+        popen3_opts = { pgroup: 0, close_others: true }
         popen3_opts[:chdir] = working_dir if working_dir && Dir.exist?(working_dir)
 
         begin

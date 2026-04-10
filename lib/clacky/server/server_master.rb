@@ -42,15 +42,30 @@ module Clacky
       end
 
       def run
-        # 0. Print banner first — before any log output
-        print_banner
-
-        # 1. Kill any existing master on this port before binding.
+        # 0. Kill any existing master on this port before binding.
         kill_existing_master
 
-        # 2. Bind the socket once — master holds it for the entire lifetime.
-        @socket = TCPServer.new(@host, @port)
+        # 1. Try to bind the socket.
+        # If port is 7070 (default), try fallback ports 7071-7075 if occupied.
+        # If port is non-default (user-specified), only try that exact port.
+        original_port = @port
+        max_port = (@port == 7070) ? (@port + 5) : @port
+        @socket = bind_with_fallback(@host, @port, max_port: max_port)
+        
+        if @socket.nil?
+          if @port == 7070
+            Clacky::Logger.error("[Master] No available ports in range 7070-7075")
+          else
+            Clacky::Logger.error("[Master] Port #{@port} is in use")
+          end
+          exit(1)
+        end
+        
         @socket.setsockopt(Socket::SOL_SOCKET, Socket::SO_REUSEADDR, true)
+        @port = @socket.local_address.ip_port  # Update to actual bound port
+
+        # 2. Print banner after port is determined
+        print_banner(port_changed: @port != original_port, original_port: original_port)
 
         write_pid_file
 
@@ -221,12 +236,33 @@ module Clacky
         end
       end
 
-      def print_banner
+      # Try to bind to preferred_port, fall back to next ports if occupied.
+      # Returns the bound TCPServer, or nil if all ports in range are occupied.
+      def bind_with_fallback(host, preferred_port, max_port:)
+        (preferred_port..max_port).each do |port|
+          begin
+            server = TCPServer.new(host, port)
+            Clacky::Logger.info("[Master] Bound to port #{port}") if port != preferred_port
+            return server
+          rescue Errno::EADDRINUSE
+            next
+          end
+        end
+        nil
+      end
+
+      def print_banner(port_changed: false, original_port: nil)
         banner = Clacky::Banner.new
         puts ""
         puts banner.colored_cli_logo
         puts banner.colored_tagline
         puts ""
+        
+        if port_changed
+          puts "   [!] Port #{original_port} is in use, using #{@port} instead"
+          puts ""
+        end
+        
         puts "   Web UI: #{banner.highlight("http://#{@host}:#{@port}")}"
         puts "   Version: #{Clacky::VERSION}"
         puts "   Press Ctrl-C to stop."

@@ -113,7 +113,10 @@ module Clacky
         stop_existing_process if @@process_state
 
         begin
-          stdin, stdout, stderr, wait_thr = Open3.popen3(command)
+          # close_others: true prevents inheriting the server's listening socket (port 7070)
+          # when run_project is called from openclacky server. Without this, the spawned
+          # project server may inherit and hold the fd, causing port conflicts.
+          stdin, stdout, stderr, wait_thr = Open3.popen3(command, close_others: true)
 
           @@process_state = {
             stdin: stdin,

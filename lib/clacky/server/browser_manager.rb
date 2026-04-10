@@ -237,7 +237,9 @@ module Clacky
       cmd = build_mcp_command(detected)
       Clacky::Logger.info("[BrowserManager] Starting MCP daemon: #{cmd.join(' ')}")
       
-      stdin, stdout, stderr_io, wait_thr = Open3.popen3(*cmd)
+      # close_others: true prevents inheriting the server's listening socket (port 7070).
+      # The MCP daemon is an independent external process and should not hold server fds.
+      stdin, stdout, stderr_io, wait_thr = Open3.popen3(*cmd, close_others: true)
       Thread.new { stderr_io.read rescue nil }
 
       # MCP handshake
