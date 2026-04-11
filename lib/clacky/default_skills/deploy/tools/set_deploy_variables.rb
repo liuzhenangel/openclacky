@@ -86,15 +86,34 @@ module Clacky
       # @param pairs        [Array<Array>]  [[key, value], ...]
       # @return [Hash] { success: true } or { success: false, error: String }
       def self.set_batch(env, service_name, pairs, raw_value: false)
+        # Each --set argument is passed as a separate array element
         set_flags = pairs.flat_map { |key, value| ["--set", "#{key}=#{value}"] }
         cmd = ["railway", "variables", "--service", service_name, "--skip-deploys"] + set_flags
 
-        _out, err, status = Open3.capture3(env, *cmd)
+        # Debug: print the full command being executed
+        puts "  [DEBUG] Executing Railway CLI command:"
+        puts "  [DEBUG] Array form: #{cmd.inspect}"
+        puts "  [DEBUG] Shell form: #{cmd.join(' ')}"
+        puts "  [DEBUG] with RAILWAY_TOKEN=#{env['RAILWAY_TOKEN']}" if env['RAILWAY_TOKEN']
+        $stdout.flush
 
-        if status.success?
+        # Use system() instead of Open3.capture3 to avoid stdin/stdout blocking issues
+        # system() inherits the current process's stdin/stdout/stderr directly
+        require 'timeout'
+        
+        begin
+          success = Timeout.timeout(30) do
+            # Close stdin, suppress stdout, but keep stderr visible
+            system(env, *cmd, in: :close, out: File::NULL)
+          end
+        rescue Timeout::Error
+          return { success: false, error: "Railway CLI command timed out after 30 seconds" }
+        end
+
+        if success
           { success: true }
         else
-          { success: false, error: err.strip }
+          { success: false, error: "railway variables command failed (exit code: #{$?.exitstatus})" }
         end
       end
 
@@ -132,12 +151,29 @@ module Clacky
           "--set", assignment
         ]
 
-        _out, err, status = Open3.capture3(env, *cmd)
+        # Debug: print the full command being executed
+        puts "  [DEBUG] Executing single var Railway CLI command:"
+        puts "  [DEBUG] Array form: #{cmd.inspect}"
+        puts "  [DEBUG] Shell form: #{cmd.join(' ')}"
+        puts "  [DEBUG] with RAILWAY_TOKEN=#{env['RAILWAY_TOKEN']}" if env['RAILWAY_TOKEN']
+        $stdout.flush
 
-        if status.success?
+        # Use system() instead of Open3.capture3 to avoid stdin/stdout blocking issues
+        require 'timeout'
+        
+        begin
+          success = Timeout.timeout(30) do
+            # Close stdin, suppress stdout, but keep stderr visible
+            system(env, *cmd, in: :close, out: File::NULL)
+          end
+        rescue Timeout::Error
+          return { success: false, error: "Railway CLI command timed out after 30 seconds" }
+        end
+
+        if success
           { success: true }
         else
-          { success: false, error: err.strip }
+          { success: false, error: "railway variables command failed (exit code: #{$?.exitstatus})" }
         end
       end
 

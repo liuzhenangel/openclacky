@@ -1,8 +1,7 @@
 ---
 name: deploy
-description: Deploy Rails applications to Railway PaaS
+description: Deploy Rails applications to Clacky cloud platform(Railway backend)
 agent: coding
-fork_agent: true
 ---
 
 # Railway Deployment for Rails
@@ -19,25 +18,13 @@ Trigger this skill when the user says:
 
 ## How to run
 
-### Step 1 — Tell the user deployment has started
-
-**Before running the script**, output a message to the user so they know work is underway:
-
-```
-🚀 Starting deployment... This usually takes 2-4 minutes.
-Checking project binding → subscription → building → migrating → health check
-```
-
-This is important because `safe_shell` does not stream output — the user sees
-nothing until the command finishes. The pre-run message reassures them.
-
-### Step 2 — Run the deploy script
+### Step 1 — Run the deploy script
 
 ```bash
 bundle exec ruby <absolute-path-to-this-skill>/scripts/rails_deploy.rb
 ```
 
-**Timeout**: set to at least 600 seconds (10 minutes).
+**Timeout**: set to at least 300 seconds (5 minutes).
 
 The script prints each step as it runs. When it finishes it prints one of:
 
@@ -46,7 +33,7 @@ The script prints each step as it runs. When it finishes it prints one of:
 [DEPLOY] RESULT: FAILED (45s) — <error message>
 ```
 
-### Step 3 — Show the full output to the user
+### Step 2 — Show the full output to the user
 
 After the script exits, **always show the complete stdout output** to the user
 in a code block or verbatim. The output contains step-by-step logs they need

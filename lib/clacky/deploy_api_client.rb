@@ -165,28 +165,54 @@ module Clacky
     #   db_service:  Hash | nil     # first middleware service with status SUCCESS
     # }
     def services(deploy_task_id:)
+      url = "#{BASE_PATH}/deploy/services?deploy_task_id=#{deploy_task_id}"
+      puts "  [DEBUG API] GET #{@base_url}#{url}"
+      
       response = connection.get("#{BASE_PATH}/deploy/services") do |req|
         req.params["deploy_task_id"] = deploy_task_id
       end
 
+      puts "  [DEBUG API] Response status: #{response.status}"
+      
       return http_error(response) unless response.status == 200
 
       body = parse_body(response)
+      puts "  [DEBUG API] Response body: #{body.inspect[0..500]}..." if body
+      
       return body_error(body) unless success_code?(body)
 
       data     = body["data"] || {}
       svcs     = data["services"] || []
       domain   = data["domain_name"].to_s
 
+      # Debug: print detailed service info
+      puts "  [DEBUG] Total services returned: #{svcs.size}"
+      svcs.each_with_index do |s, idx|
+        puts "  [DEBUG]   Service[#{idx}]: name=#{s['service_name']}, type=#{s['type']}, status=#{s['status']}"
+        if s["type"] == "middleware"
+          env_vars = s["env_vars"] || {}
+          puts "  [DEBUG]     - env_vars keys: #{env_vars.keys.join(', ')}"
+          puts "  [DEBUG]     - has DATABASE_URL: #{env_vars.key?('DATABASE_URL')}"
+          puts "  [DEBUG]     - has DATABASE_PUBLIC_URL: #{env_vars.key?('DATABASE_PUBLIC_URL')}"
+        end
+      end
+
       # Find first middleware (DB) that is fully provisioned
       db_svc = svcs.find do |s|
         s["type"] == "middleware" && s["status"]&.upcase == "SUCCESS"
+      end
+      
+      puts "  [DEBUG] db_svc found: #{!db_svc.nil?}"
+      if db_svc
+        puts "  [DEBUG]   - db_svc name: #{db_svc['service_name']}"
+        puts "  [DEBUG]   - db_svc status: #{db_svc['status']}"
       end
 
       # middleware_support: { supported: Boolean, supported_types: Array }
       # When supported == false, no DB middleware will be provisioned by Clacky.
       # The deploy script uses this to skip the DB polling loop entirely.
       middleware_support = data["middleware_support"] || {}
+      puts "  [DEBUG] middleware_support: #{middleware_support.inspect}"
 
       # platform_bucket_credentials contains S3-compatible storage credentials.
       # Passed through so the deploy script can inject STORAGE_BUCKET_* env vars.
@@ -268,6 +294,102 @@ module Clacky
       { success: false, error: "Network error: #{e.message}" }
     rescue => e
       { success: false, error: "Unexpected error: #{e.message}" }
+    end
+
+    # -------------------------------------------------------------------------
+    # Build Logs
+    # -------------------------------------------------------------------------
+
+    # Fetch build logs for a deploy task (synchronous, not SSE).
+    #
+    # @param deploy_task_id [String]
+    # @param service_id [String, nil] optional service ID filter
+    # @param level [String] log level filter ("INFO", "ERROR", "WARN", etc.)
+    # @param lines [Integer] maximum number of lines to return (default: 100)
+    # @return [Hash] {
+    #   success: true,
+    #   logs: Array<Hash>  # [{ "timestamp" => ..., "level" => "INFO", "message" => "..." }, ...]
+    # } or { success: false, error: String }
+    def build_logs(deploy_task_id:, service_id: nil, level: "INFO", lines: 100)
+      body_params = {
+        deploy_task_id: deploy_task_id,
+        level: level,
+        lines: lines
+      }
+      body_params[:service_id] = service_id if service_id
+
+      response = connection.post("#{BASE_PATH}/tasks/logs") do |req|
+        req.headers["Content-Type"] = "application/json"
+        req.body = JSON.generate(body_params)
+      end
+
+      return http_error(response) unless response.status == 200
+
+      body = parse_body(response)
+      return body_error(body) unless success_code?(body)
+
+      data = body["data"] || {}
+      logs = data["logs"] || []
+      { success: true, logs: logs }
+    rescue Faraday::Error => e
+      { success: false, error: "Network error: #{e.message}" }
+    rescue => e
+      { success: false, error: "Unexpected error: #{e.message}" }
+    end
+
+    # Stream build logs using SSE (Server-Sent Events).
+    # This method yields each log line as it arrives.
+    #
+    # @param deploy_task_id [String]
+    # @param service_id [String, nil] optional service ID filter
+    # @param level [String] log level filter ("INFO", "ERROR", "WARN", etc.)
+    # @yield [Hash] each log event: { "type" => "log", "timestamp" => ..., "message" => "..." }
+    # @return [Hash] { success: true } or { success: false, error: String }
+    def stream_build_logs(deploy_task_id:, service_id: nil, level: "INFO", &block)
+      require "net/http"
+      require "openssl"
+
+      body_params = {
+        deploy_task_id: deploy_task_id,
+        level: level
+      }
+      body_params[:service_id] = service_id if service_id
+
+      url = "#{@base_url}#{BASE_PATH}/tasks/stream/build-logs"
+      uri = URI.parse(url)
+
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", verify_mode: OpenSSL::SSL::VERIFY_NONE) do |http|
+        request = Net::HTTP::Post.new(uri.path)
+        request["Authorization"] = "Bearer #{@workspace_key}"
+        request["Accept"] = "text/event-stream"
+        request["Content-Type"] = "application/json"
+        request.body = JSON.generate(body_params)
+
+        http.request(request) do |response|
+          return { success: false, error: "HTTP #{response.code}: #{response.message}" } unless response.code.to_i == 200
+
+          buffer = ""
+          response.read_body do |chunk|
+            buffer << chunk
+            while (line_end = buffer.index("\n"))
+              line = buffer.slice!(0..line_end).strip
+              next if line.empty? || !line.start_with?("data:")
+
+              json_str = line.sub(/^data:\s*/, "")
+              begin
+                event = JSON.parse(json_str)
+                block.call(event) if block
+              rescue JSON::ParserError
+                # Ignore malformed JSON
+              end
+            end
+          end
+        end
+      end
+
+      { success: true }
+    rescue => e
+      { success: false, error: "Stream error: #{e.message}" }
     end
 
     # -------------------------------------------------------------------------
