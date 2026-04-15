@@ -2012,6 +2012,14 @@ body {
   padding: 4px 0;
 }
 
+.skill-ac-empty {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--color-text-tertiary, #888);
+  text-align: left;
+  font-style: italic;
+}
+
 .skill-ac-item {
   display: flex;
   align-items: baseline;
