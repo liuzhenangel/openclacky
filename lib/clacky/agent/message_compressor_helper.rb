@@ -137,7 +137,8 @@ module Clacky
           original_messages,
           compression_context[:recent_messages],
           chunk_index: chunk_index,
-          compression_level: compression_context[:compression_level]
+          compression_level: compression_context[:compression_level],
+          topics: @message_compressor.parse_topics(compressed_content)
         )
 
         @history.replace_all(@message_compressor.rebuild_with_compression(
@@ -303,16 +304,21 @@ module Clacky
       # @param recent_messages [Array<Hash>] Recent messages being kept (to exclude from chunk)
       # @param chunk_index [Integer] Sequential chunk number
       # @param compression_level [Integer] Compression level
+      # @param topics [String, nil] Short topic description for chunk index card
       # @return [String, nil] Path to saved chunk file, or nil if save failed
-      def save_compressed_chunk(original_messages, recent_messages, chunk_index:, compression_level:)
+      def save_compressed_chunk(original_messages, recent_messages, chunk_index:, compression_level:, topics: nil)
         return nil unless @session_id && @created_at
 
         # Messages being compressed = original minus system message minus recent messages
         # Also exclude system-injected scaffolding (session context, memory prompts, etc.)
         # — these are internal CLI metadata and must not appear in chunk MD or WebUI history.
+        # Also exclude previous compressed_summary messages: they are index cards pointing
+        # to older chunk files and must NOT be embedded inside a new chunk, otherwise
+        # parse_chunk_md_to_rounds would follow the nested reference and create circular
+        # chunk chains (chunk-2 → chunk-1 → ... → chunk-2).
         recent_set = recent_messages.to_a
         messages_to_archive = original_messages.reject do |m|
-          m[:role] == "system" || m[:system_injected] || recent_set.include?(m)
+          m[:role] == "system" || m[:system_injected] || m[:compressed_summary] || recent_set.include?(m)
         end
 
         return nil if messages_to_archive.empty?
@@ -324,7 +330,7 @@ module Clacky
         chunk_filename = "#{base_name}-chunk-#{chunk_index}.md"
         chunk_path = File.join(sessions_dir, chunk_filename)
 
-        md_content = build_chunk_md(messages_to_archive, chunk_index: chunk_index, compression_level: compression_level)
+        md_content = build_chunk_md(messages_to_archive, chunk_index: chunk_index, compression_level: compression_level, topics: topics)
 
         File.write(chunk_path, md_content)
         FileUtils.chmod(0o600, chunk_path)
@@ -339,8 +345,9 @@ module Clacky
       # @param messages [Array<Hash>] Messages to render
       # @param chunk_index [Integer] Chunk number for metadata
       # @param compression_level [Integer] Compression level
+      # @param topics [String, nil] Short topic description extracted from LLM summary
       # @return [String] Markdown content
-      def build_chunk_md(messages, chunk_index:, compression_level:)
+      def build_chunk_md(messages, chunk_index:, compression_level:, topics: nil)
         lines = []
 
         # Front matter
@@ -350,6 +357,7 @@ module Clacky
         lines << "compression_level: #{compression_level}"
         lines << "archived_at: #{Time.now.iso8601}"
         lines << "message_count: #{messages.size}"
+        lines << "topics: #{topics}" if topics
         lines << "---"
         lines << ""
         lines << "# Session Chunk #{chunk_index}"

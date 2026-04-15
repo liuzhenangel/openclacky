@@ -38,16 +38,23 @@ module Clacky
       YOUR ONLY TASK: Create a comprehensive summary of the conversation above.
 
       REQUIRED RESPONSE FORMAT:
-      Your response MUST start with <analysis> or <summary> tags. No other format is acceptable.
+      First output a <topics> line listing 3-6 key topic phrases (comma-separated, concise).
+      Then output the full summary wrapped in <summary> tags.
 
-      Follow the detailed compression prompt structure provided earlier. Focus on:
+      Example format:
+      <topics>Rails setup, database config, deploy pipeline, Tailwind CSS</topics>
+      <summary>
+      ...full summary text...
+      </summary>
+
+      Focus on:
       - User's explicit requests and intents
       - Key technical concepts and code changes
       - Files examined and modified
       - Errors encountered and fixes applied
       - Current work status and pending tasks
 
-      Begin your summary NOW. Remember: PURE TEXT response only, starting with <analysis> or <summary> tags.
+      Begin your response NOW. Remember: PURE TEXT only, starting with <topics> then <summary>.
     PROMPT
 
     def initialize(client, model: nil)
@@ -109,22 +116,33 @@ module Clacky
     end
 
 
+    # Parse topics tag from compressed content.
+    # Returns the topics string if found, nil otherwise.
+    # e.g. "<topics>Rails setup, database config</topics>" → "Rails setup, database config"
+    def parse_topics(content)
+      m = content.match(/<topics>(.*?)<\/topics>/m)
+      m ? m[1].strip : nil
+    end
+
     def parse_compressed_result(result, chunk_path: nil)
       # Return the compressed result as a single assistant message
-      # Keep the <analysis> or <summary> tags as they provide semantic context
+      # Keep the <summary> tags as they provide semantic context
       content = result.to_s.strip
 
       if content.empty?
         []
       else
+        # Strip out the <topics> block — it's metadata for the chunk file, not for AI context
+        content_without_topics = content.gsub(/<topics>.*?<\/topics>\n*/m, "").strip
+
         # Inject chunk anchor so AI knows where to find original conversation
         if chunk_path
           anchor = "\n\n---\n📁 **Original conversation archived at:** `#{chunk_path}`\n" \
                    "_Use `file_reader` tool to recall details from this chunk._"
-          content = content + anchor
+          content_without_topics = content_without_topics + anchor
         end
 
-        [{ role: "assistant", content: content, compressed_summary: true, chunk_path: chunk_path }]
+        [{ role: "assistant", content: content_without_topics, compressed_summary: true, chunk_path: chunk_path }]
       end
     end
   end

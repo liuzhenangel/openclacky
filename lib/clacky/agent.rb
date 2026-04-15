@@ -212,6 +212,9 @@ module Clacky
       # Inject session context (date + model) if not yet present or date has changed
       inject_session_context_if_needed
 
+      # Inject chunk index card if archived chunks exist and index is stale
+      inject_chunk_index_if_needed
+
       # Split files into vision images and disk files; downgrade oversized images to disk
       image_files, disk_files = partition_files(Array(files))
       vision_images, downgraded = resolve_vision_images(image_files)

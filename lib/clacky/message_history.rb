@@ -12,6 +12,7 @@ module Clacky
       task_id created_at system_injected session_context memory_update
       subagent_instructions subagent_result token_usage
       compressed_summary chunk_path truncated transient
+      chunk_index chunk_count
     ].freeze
 
     def initialize(messages = [])
@@ -121,6 +122,13 @@ module Clacky
     def last_session_context_date
       msg = @messages.reverse.find { |m| m[:session_context] }
       msg&.dig(:session_date)
+    end
+
+    # Return the chunk_count from the most recently injected chunk index message.
+    # Used by inject_chunk_index_if_needed to avoid re-injecting when nothing changed.
+    def last_injected_chunk_count
+      msg = @messages.reverse.find { |m| m[:chunk_index] }
+      msg&.dig(:chunk_count) || 0
     end
 
     # Return only real (non-system-injected) user messages.

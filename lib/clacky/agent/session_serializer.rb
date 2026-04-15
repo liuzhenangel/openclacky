@@ -529,6 +529,75 @@ module Clacky
           { name: "image_#{idx + 1}.#{ext}", mime_type: mime_type, data_url: url, path: path }
         end
       end
+
+      # Inject a chunk index card into the conversation when archived chunks exist.
+      # Lists all chunk files (path + topics + turn count) so the AI knows where to
+      # look if it needs details from past conversations. The AI can load any chunk
+      # on demand using the existing file_reader tool — no new tools required.
+      #
+      # Only re-injects when a new chunk has been added since the last injection,
+      # keeping the message list clean across multiple compressions.
+      #
+      # Cache-safe: injected as a system_injected user message in the conversation
+      # turns, never touching the system prompt.
+      def inject_chunk_index_if_needed
+        # Collect all compressed_summary messages that carry a chunk_path
+        chunk_msgs = @history.to_a.select { |m| m[:compressed_summary] && m[:chunk_path] }
+        return if chunk_msgs.empty?
+
+        # Skip if we already injected an index for this exact chunk count
+        return if @history.last_injected_chunk_count == chunk_msgs.size
+
+        # Remove any previously injected chunk index (stale — chunk count changed)
+        @history.delete_where { |m| m[:chunk_index] }
+
+        # Build index card lines
+        lines = ["## Previous Session Archives (#{chunk_msgs.size} chunk#{"s" if chunk_msgs.size > 1} available)\n"]
+        chunk_msgs.each_with_index do |msg, i|
+          path   = msg[:chunk_path].to_s
+          topics = read_chunk_topics(path)
+          turns  = read_chunk_message_count(path)
+          lines << "[CHUNK-#{i + 1}] #{path}"
+          lines << "  Topics: #{topics}" if topics
+          lines << "  Turns: #{turns}"   if turns
+          lines << ""
+        end
+        lines << "Use file_reader to load a chunk file when you need original conversation details."
+
+        @history.append({
+          role: "user",
+          content: lines.join("\n"),
+          system_injected: true,
+          chunk_index: true,
+          chunk_count: chunk_msgs.size
+        })
+      end
+
+      # Read the `topics` field from a chunk MD file's YAML front matter.
+      # Returns nil if the file is missing or has no topics field.
+      private def read_chunk_topics(chunk_path)
+        return nil unless chunk_path && File.exist?(chunk_path)
+        File.foreach(chunk_path) do |line|
+          return line.sub(/^topics:\s*/, "").strip if line.start_with?("topics:")
+          break if line.strip == "---" && $. > 1  # end of front matter
+        end
+        nil
+      rescue
+        nil
+      end
+
+      # Read the `message_count` field from a chunk MD file's YAML front matter.
+      # Returns nil if the file is missing or has no message_count field.
+      private def read_chunk_message_count(chunk_path)
+        return nil unless chunk_path && File.exist?(chunk_path)
+        File.foreach(chunk_path) do |line|
+          return line.sub(/^message_count:\s*/, "").strip.to_i if line.start_with?("message_count:")
+          break if line.strip == "---" && $. > 1
+        end
+        nil
+      rescue
+        nil
+      end
     end
   end
 end
