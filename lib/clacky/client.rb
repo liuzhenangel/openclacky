@@ -114,12 +114,25 @@ module Clacky
 
     # ── Prompt-caching support ────────────────────────────────────────────────
 
-    # Returns true for Claude 3.5+ models that support prompt caching.
+    # Returns true for Claude models that support prompt caching (gen 3.5+ or gen 4+).
+    #
+    # Handles both direct model names (e.g. "claude-haiku-4-5") and
+    # Clacky AI Bedrock proxy names with "abs-" prefix (e.g. "abs-claude-haiku-4-5").
+    #
+    # Why only Claude models:
+    #   - MiniMax uses automatic server-side caching (no cache_control needed from client)
+    #   - Kimi uses a proprietary prompt_cache_key param, not cache_control
+    #   - MiMo has no documented caching API
+    #   - Only Claude (direct, OpenRouter, or ClackyAI Bedrock proxy) consumes our
+    #     cache_control / cachePoint markers
     def supports_prompt_caching?(model)
-      model_str = model.to_s.downcase
+      # Strip ClackyAI Bedrock proxy prefix before matching
+      model_str = model.to_s.downcase.sub(/^abs-/, "")
       return false unless model_str.include?("claude")
 
-      model_str.match?(/claude(?:-3[-.]?[5-9]|-[4-9]|-sonnet-[34])/)
+      # Match Claude gen 3.5+ (3.5/3.6/3.7…) or gen 4+ in any name format:
+      #   claude-3.5-sonnet-...  claude-3-7-sonnet  claude-haiku-4-5  claude-sonnet-4-6
+      model_str.match?(/claude(?:-3[-.]?[5-9]|.*-[4-9][-.]|.*-[4-9]$|-[4-9][-.]|-[4-9]$|-sonnet-[34])/)
     end
 
 

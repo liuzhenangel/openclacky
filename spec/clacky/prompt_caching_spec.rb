@@ -105,6 +105,9 @@ RSpec.describe "Prompt Caching Feature" do
       
       it "returns true for Claude 4 models" do
         expect(client.send(:supports_prompt_caching?, "claude-4-opus")).to be true
+        expect(client.send(:supports_prompt_caching?, "claude-opus-4-6")).to be true
+        expect(client.send(:supports_prompt_caching?, "claude-sonnet-4-6")).to be true
+        expect(client.send(:supports_prompt_caching?, "claude-haiku-4-5")).to be true
       end
       
       it "returns false for older Claude models" do
@@ -115,6 +118,20 @@ RSpec.describe "Prompt Caching Feature" do
       it "returns false for non-Claude models" do
         expect(client.send(:supports_prompt_caching?, "gpt-4")).to be false
         expect(client.send(:supports_prompt_caching?, "gpt-3.5-turbo")).to be false
+        expect(client.send(:supports_prompt_caching?, "MiniMax-M2.7")).to be false
+        expect(client.send(:supports_prompt_caching?, "kimi-k2.5")).to be false
+        expect(client.send(:supports_prompt_caching?, "mimo-v2-pro")).to be false
+      end
+
+      it "returns false for old Claude 3.0 models" do
+        expect(client.send(:supports_prompt_caching?, "claude-3-opus-20240229")).to be false
+        expect(client.send(:supports_prompt_caching?, "claude-2.1")).to be false
+      end
+
+      it "returns true for Clacky AI Bedrock proxy models with abs- prefix" do
+        expect(client.send(:supports_prompt_caching?, "abs-claude-haiku-4-5")).to be true
+        expect(client.send(:supports_prompt_caching?, "abs-claude-sonnet-4-6")).to be true
+        expect(client.send(:supports_prompt_caching?, "abs-claude-opus-4-6")).to be true
       end
     end
     
