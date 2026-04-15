@@ -709,8 +709,21 @@ module Clacky
             sleep 0.1
             # Clear output area
             ui_controller.layout.clear_output
+            # Cancel old idle timer before replacing agent to avoid stale-agent compression
+            idle_timer.cancel
             # Clear session by creating a new agent
             agent = Clacky::Agent.new(client, agent_config, working_dir: working_dir, ui: ui_controller, profile: agent.agent_profile.name, session_id: Clacky::SessionManager.generate_id, source: :manual)
+            # Rebuild idle timer bound to the new agent
+            idle_timer = Clacky::IdleCompressionTimer.new(
+              agent:           agent,
+              session_manager: session_manager,
+              logger:          ->(msg, level:) { ui_controller.log(msg, level: level) }
+            ) do |success|
+              if success
+                ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+              end
+              ui_controller.set_idle_status
+            end
             ui_controller.show_info("Session cleared. Starting fresh.")
             # Update session bar with reset values
             ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
