@@ -813,20 +813,20 @@ RSpec.describe Clacky::AgentConfig do
   # Providers.find_by_base_url
   # ─────────────────────────────────────────────────────────────────────────
   describe "Clacky::Providers.find_by_base_url" do
-    it "returns clackyai for https://api.clacky.ai" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai")).to eq("clackyai")
+    it "returns clackyai-sea for https://api.clacky.ai" do
+      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai")).to eq("clackyai-sea")
     end
 
     it "is tolerant of trailing slashes" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/")).to eq("clackyai")
+      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/")).to eq("clackyai-sea")
     end
 
     it "matches sub-path variants like /v1" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1")).to eq("clackyai")
+      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1")).to eq("clackyai-sea")
     end
 
     it "matches sub-path variants like /v1/" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1/")).to eq("clackyai")
+      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1/")).to eq("clackyai-sea")
     end
 
     it "returns nil for unknown base URLs" do
@@ -842,8 +842,8 @@ RSpec.describe Clacky::AgentConfig do
   # Providers.lite_model
   # ─────────────────────────────────────────────────────────────────────────
   describe "Clacky::Providers.lite_model" do
-    it "returns abs-claude-haiku-4-5 for clackyai" do
-      expect(Clacky::Providers.lite_model("clackyai")).to eq("abs-claude-haiku-4-5")
+    it "returns abs-claude-haiku-4-5 for clackyai-sea" do
+      expect(Clacky::Providers.lite_model("clackyai-sea")).to eq("abs-claude-haiku-4-5")
     end
 
     it "returns nil for providers without a lite model (e.g. minimax)" do
