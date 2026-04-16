@@ -466,8 +466,7 @@ module Clacky
       # Show progress indicator with dynamic elapsed time
       # @param message [String] Progress message (optional, will use random thinking verb if nil)
       # @param prefix_newline [Boolean] Whether to add a blank line before progress (default: true)
-      # @param output_buffer [Hash, nil] Shared output buffer for real-time command output (optional)
-      def show_progress(message = nil, prefix_newline: true, output_buffer: nil)
+      def show_progress(message = nil, prefix_newline: true, progress_type: "thinking", phase: "active", metadata: {})
         # Stop any existing progress thread
         stop_progress_thread
 
@@ -476,7 +475,6 @@ module Clacky
 
         @progress_message = message || Clacky::THINKING_VERBS.sample
         @progress_start_time = Time.now
-        @progress_output_buffer = output_buffer
         # Flag used by the progress thread to know when to stop gracefully.
         # Using a flag + join is safe because Thread#kill can interrupt a thread
         # while it holds @render_mutex, causing a permanent deadlock.
@@ -562,7 +560,6 @@ module Clacky
 
         # Signal thread to stop without joining — it will exit on next loop tick
         @progress_start_time = nil
-        @progress_output_buffer = nil
         @stdout_lines = nil
         @progress_thread_stop = true
         # Detach: let the thread die on its own; we do NOT join here
@@ -594,7 +591,6 @@ module Clacky
       # @render_mutex) and leave the mutex permanently locked.
       def stop_progress_thread
         @progress_start_time = nil
-        @progress_output_buffer = nil
         @progress_thread_stop = true
         if @progress_thread&.alive?
           # Join with a short timeout; fall back to kill only as a last resort

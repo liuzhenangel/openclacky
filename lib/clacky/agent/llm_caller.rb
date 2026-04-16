@@ -81,10 +81,16 @@ module Clacky
           # infrastructure blips — do NOT trigger fallback.  Just retry on the current
           # model (primary or already-active fallback) up to max_retries.
           if retries <= max_retries
-            @ui&.show_warning("Network failed: #{e.message}. Retry #{retries}/#{max_retries}...")
+            @ui&.show_progress(
+              "Network failed: #{e.message}",
+              progress_type: "retrying",
+              phase: "active",
+              metadata: { attempt: retries, total: max_retries }
+            )
             sleep retry_delay
             retry
           else
+            @ui&.show_progress(progress_type: "retrying", phase: "done")
             @ui&.show_error("Network failed after #{max_retries} retries: #{e.message}")
             raise AgentError, "Network connection failed after #{max_retries} retries: #{e.message}"
           end
@@ -112,10 +118,16 @@ module Clacky
                 retry
               end
             end
-            @ui&.show_warning("#{e.message} (#{retries}/#{current_max})")
+            @ui&.show_progress(
+              e.message,
+              progress_type: "retrying",
+              phase: "active",
+              metadata: { attempt: retries, total: current_max }
+            )
             sleep retry_delay
             retry
           else
+            @ui&.show_progress(progress_type: "retrying", phase: "done")
             @ui&.show_error("LLM service unavailable after #{current_max} retries. Please try again later.")
             raise AgentError, "LLM service unavailable after #{current_max} retries"
           end

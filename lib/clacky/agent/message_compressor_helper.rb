@@ -17,9 +17,9 @@ module Clacky
       def trigger_idle_compression
         # Check if we should compress (force mode)
         compression_context = compress_messages_if_needed(force: true)
-        @ui&.show_idle_status(phase: :start, message: "Idle detected. Compressing conversation to optimize costs...")
+        @ui&.show_progress("Idle detected. Compressing conversation to optimize costs...", progress_type: "idle_compress", phase: "active")
         if compression_context.nil?
-          @ui&.show_idle_status(phase: :end, message: "Idle skipped.")
+          @ui&.show_progress("Idle skipped.", progress_type: "idle_compress", phase: "done")
           Clacky::Logger.info(
             "Idle compression skipped",
             enable_compression: @config.enable_compression,
@@ -168,7 +168,7 @@ module Clacky
         # Show compression info (use estimated tokens from rebuilt history)
         compression_summary = "History compressed (~#{compression_context[:original_token_count]} -> ~#{@history.estimate_tokens} tokens, " \
           "level #{compression_context[:compression_level]})"
-        @ui&.show_idle_status(phase: :end, message: compression_summary)
+        @ui&.show_progress(compression_summary, progress_type: "idle_compress", phase: "done")
       end
 
       # Get recent messages while preserving tool_calls/tool_results pairs.

@@ -208,13 +208,25 @@ module Clacky
 
       # === Progress ===
 
-      def show_progress(message = nil, prefix_newline: true, output_buffer: nil)
-        @progress_start_time = Time.now
+      def show_progress(message = nil, prefix_newline: true, progress_type: "thinking", phase: "active", metadata: {})
+        @progress_start_time = Time.now if phase == "active"
         @live_progress_message = message
         # Reset stdout buffer for each new command so re-subscribe only replays current run
-        @live_stdout_buffer = []
-        emit("progress", message: message, status: "start")
+        @live_stdout_buffer = [] if phase == "active"
+        
+        data = {
+          message: message,
+          progress_type: progress_type,
+          phase: phase,
+          status: phase == "active" ? "start" : "stop"  # backward compat
+        }
+        data[:metadata] = metadata unless metadata.empty?
+        data[:elapsed] = (Time.now - @progress_start_time).round(1) if phase == "done" && @progress_start_time
+        
+        emit("progress", **data)
         forward_to_subscribers { |sub| sub.show_progress(message) }
+        
+        @progress_start_time = nil if phase == "done"
       end
 
       # Stream shell stdout/stderr lines to the browser while a command is running.
@@ -230,14 +242,10 @@ module Clacky
       end
 
       def clear_progress
-        elapsed = @progress_start_time ? (Time.now - @progress_start_time).round(1) : 0
-        @progress_start_time = nil
-        @live_progress_message = nil
         @live_tool_call = nil   # command finished — nothing left to replay
         # Keep @live_stdout_buffer intact — it will be reset on the next show_progress call.
         # This allows a brief replay window even after the command finishes.
-        emit("progress", status: "stop", elapsed: elapsed)
-        forward_to_subscribers { |sub| sub.clear_progress }
+        show_progress(progress_type: "thinking", phase: "done")
       end
 
       # Replay in-progress command state to a newly (re-)subscribing browser tab.

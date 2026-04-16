@@ -97,10 +97,6 @@ module Clacky
       emit("info", message: message)
     end
 
-    def show_idle_status(phase:, message:)
-      emit("idle_status", phase: phase.to_s, message: message)
-    end
-
     def show_warning(message)
       emit("warning", message: message)
     end
@@ -119,15 +115,25 @@ module Clacky
 
     # === Progress ===
 
-    def show_progress(message = nil, prefix_newline: true, output_buffer: nil)
-      @progress_start_time = Time.now
-      emit("progress", message: message, status: "start")
+    def show_progress(message = nil, prefix_newline: true, progress_type: "thinking", phase: "active", metadata: {})
+      @progress_start_time = Time.now if phase == "active"
+      
+      data = {
+        message: message,
+        progress_type: progress_type,
+        phase: phase,
+        status: phase == "active" ? "start" : "stop"  # backward compat
+      }
+      data[:metadata] = metadata unless metadata.empty?
+      data[:elapsed] = (Time.now - @progress_start_time).round(1) if phase == "done" && @progress_start_time
+      
+      emit("progress", **data)
+      
+      @progress_start_time = nil if phase == "done"
     end
 
     def clear_progress
-      elapsed = @progress_start_time ? (Time.now - @progress_start_time).round(1) : 0
-      @progress_start_time = nil
-      emit("progress", status: "stop", elapsed: elapsed)
+      show_progress(progress_type: "thinking", phase: "done")
     end
 
     # === State updates ===

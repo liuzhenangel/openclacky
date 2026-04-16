@@ -11,13 +11,31 @@ module Clacky
     # - api: API type (anthropic-messages, openai-responses, openai-completions)
     # - default_model: Recommended default model
     PRESETS = {
+      "openclacky" => {
+        "name" => "OpenClacky",
+        "base_url" => "https://api.openclacky.com",
+        "api" => "bedrock",
+        "default_model" => "abs-claude-sonnet-4-5",
+        "lite_model" => "abs-claude-haiku-4-5",
+        "models" => [
+          "abs-claude-opus-4-6",
+          "abs-claude-sonnet-4-6",
+          "abs-claude-sonnet-4-5",
+          "abs-claude-haiku-4-5"
+        ],
+        # Fallback chain: if a model is unavailable, try the next one in order.
+        # Keys are primary model names; values are the fallback model to use instead.
+        "fallback_models" => {
+          "abs-claude-sonnet-4-6" => "abs-claude-sonnet-4-5"
+        },
+        "website_url" => "https://www.openclacky.com/ai-keys"
+      }.freeze,
 
       "openrouter" => {
         "name" => "OpenRouter",
         "base_url" => "https://openrouter.ai/api/v1",
         "api" => "openai-responses",
         "default_model" => "anthropic/claude-sonnet-4-6",
-        "lite_model" => "anthropic/claude-haiku-4-5",
         "models" => [],  # Dynamic - fetched from API
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
@@ -49,15 +67,16 @@ module Clacky
         "website_url" => "https://console.anthropic.com/settings/keys"
       }.freeze,
 
-      "clackyai" => {
-        "name" => "ClackyAI",
+      "clackyai-sea" => {
+        "name" => "ClackyAI( Sea )",
         "base_url" => "https://api.clacky.ai",
         "api" => "bedrock",
-        "default_model" => "abs-claude-sonnet-4-6",
+        "default_model" => "abs-claude-sonnet-4-5",
         "lite_model" => "abs-claude-haiku-4-5",
         "models" => [
           "abs-claude-opus-4-6",
           "abs-claude-sonnet-4-6",
+          "abs-claude-sonnet-4-5",
           "abs-claude-haiku-4-5"
         ],
         # Fallback chain: if a model is unavailable, try the next one in order.

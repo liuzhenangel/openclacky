@@ -30,7 +30,11 @@ module Clacky
     def log(message, level: :info); end
 
     # === Progress ===
-    def show_progress(message = nil, prefix_newline: true, output_buffer: nil); end
+    # Unified progress indicator with type-based display customization.
+    # progress_type: "thinking" | "retrying" | "idle_compress" | custom
+    # phase: "active" | "done"
+    # metadata: extensible hash (e.g., {attempt: 3, total: 10} for retries)
+    def show_progress(message = nil, prefix_newline: true, progress_type: "thinking", phase: "active", metadata: {}); end
     def clear_progress; end
 
     # === State updates ===
@@ -38,12 +42,6 @@ module Clacky
     def update_todos(todos); end
     def set_working_status; end
     def set_idle_status; end
-
-    # === Idle compression status ===
-    # Emits a two-phase idle compression status update.
-    # phase: :start  → show "Idle detected. Compressing..." (with spinner)
-    # phase: :end    → update same element with final result (skipped / compressed)
-    def show_idle_status(phase:, message:); end
 
     # === Blocking interaction ===
     def request_confirmation(message, default: true); end
