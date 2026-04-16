@@ -664,9 +664,34 @@ module Clacky
           # installed and that have a newer version available.
           # New skills are never auto-installed — the user must click Install/Update
           # explicitly from the Brand Skills panel.
+          installed = installed_brand_skills
           skills_needing_update = result[:skills].select { |s| s["needs_update"] }
           results = skills_needing_update.map do |skill_info|
             install_brand_skill!(skill_info)
+          end
+
+          # Even when the version hasn't changed, display metadata (name_zh,
+          # description_zh, description) may have been updated on the platform.
+          # Patch brand_skills.json in-place without re-downloading the ZIP.
+          result[:skills].each do |skill_info|
+            name = skill_info["name"]
+            next unless installed.key?(name)
+            next if skill_info["needs_update"] # already being reinstalled above
+
+            local = installed[name]
+            next if local["name_zh"]        == skill_info["name_zh"].to_s &&
+                    local["description_zh"] == skill_info["description_zh"].to_s &&
+                    local["description"]    == skill_info["description"].to_s
+
+            # Metadata changed — update brand_skills.json without reinstalling.
+            record_installed_skill(
+              name,
+              local["version"],
+              skill_info["description"].to_s,
+              encrypted:      local["encrypted"] != false,
+              description_zh: skill_info["description_zh"].to_s,
+              name_zh:        skill_info["name_zh"].to_s
+            )
           end
 
           on_complete&.call(results)
