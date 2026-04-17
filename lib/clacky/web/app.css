@@ -311,6 +311,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding-bottom: 10px;
 }
 #session-list { padding: 4px 8px 8px; min-height: 108px; }
 
@@ -4785,14 +4786,14 @@ body.setup-mode[data-theme="dark"] {
 #channels-body {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 40px;
+  padding: 28px 36px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .channels-page-header {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .channels-page-title {
@@ -4828,14 +4829,20 @@ body.setup-mode[data-theme="dark"] {
   animation: section-flash 2.4s ease-in-out;
 }
 /* ── Channel card ───────────────────────────────────────────────────────── */
+#channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .channel-card {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-primary);
   border-radius: 12px;
-  padding: 20px 24px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
 }
 
 .channel-card-header {
@@ -4915,7 +4922,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Channel card body ───────────────────────────────────────────────────── */
 .channel-card-body {
-  padding: 2px 0;
+  padding: 0;
 }
 
 .channel-status-hint {
@@ -4936,7 +4943,7 @@ body.setup-mode[data-theme="dark"] {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding-top: 4px;
+  padding-top: 12px;
   border-top: 1px solid var(--color-border-primary);
 }
 
