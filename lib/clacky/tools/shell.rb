@@ -3,41 +3,10 @@
 require "tmpdir"
 require_relative "base"
 require_relative "../utils/encoding"
+require_relative "../utils/limit_stack"
 
 module Clacky
   module Tools
-    # A StringIO wrapper that scrubs invalid/undefined bytes to UTF-8 on every
-    # write.  Shell commands (via popen3) can emit bytes in any encoding
-    # (GBK, Latin-1, binary, …).  By sanitizing at the earliest possible point
-    # we guarantee that every downstream operation — regex matching, line
-    # splitting, JSON serialization — never sees invalid byte sequences.
-    class EncodingSafeBuffer
-      def initialize
-        # Use ASCII-8BIT backing store to accept raw bytes from popen3 without
-        # encoding conflicts.  Scrubbing happens on write; the string method
-        # re-labels the result as UTF-8 on the way out so callers (JSON.generate,
-        # regex, etc.) always see a properly-tagged UTF-8 string.
-        @io = StringIO.new("".b)
-      end
-
-      def write(data)
-        return unless data && !data.empty?
-
-        # Shell output arrives as binary (ASCII-8BIT) bytes.  Use the shared
-        # helper which scrubs only genuinely invalid sequences, preserving
-        # multibyte characters (e.g. CJK).  The result is written as raw bytes
-        # into the ASCII-8BIT buffer.
-        @io.write(Clacky::Utils::Encoding.to_utf8(data).b)
-      end
-
-      def string
-        # Re-label the accumulated bytes as UTF-8.  By this point every byte
-        # has already been scrubbed by to_utf8 on write, so force_encoding is
-        # safe and avoids an unnecessary copy.
-        @io.string.force_encoding("UTF-8")
-      end
-    end
-
     class Shell < Base
       self.tool_name = "shell"
       self.tool_description = "Execute shell commands in the terminal"
@@ -90,14 +59,28 @@ module Clacky
         'go build'
       ].freeze
 
+      # Maximum characters per line (handles minified CSS/JS/JSON)
+      MAX_LINE_CHARS = 500
+      # Maximum total characters sent to LLM
+      MAX_LLM_OUTPUT_CHARS = 4_000
+      # Maximum lines kept in the rolling buffer
+      MAX_LLM_OUTPUT_LINES = 500
+
       def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000, on_output: nil, working_dir: nil)
         require "open3"
-        require "stringio"
 
         soft_timeout, hard_timeout = determine_timeouts(command, soft_timeout, hard_timeout)
 
-        stdout_buffer = EncodingSafeBuffer.new
-        stderr_buffer = EncodingSafeBuffer.new
+        # OutputLimitBuffer built on LimitStack:
+        #   - max_line_chars: truncates each individual line at write-time
+        #     (prevents single-line minified JSON/CSS from filling the buffer)
+        #   - max_chars: stops accepting new content once budget is exhausted
+        #     (prevents runaway output from consuming LLM tokens)
+        #   - max_size: rolling window keeps the LAST N lines
+        #     (preserves the most recent/relevant output tail)
+        # All limits are enforced at write-time — no post-processing needed.
+        stdout_buffer = new_output_buffer
+        stderr_buffer = new_output_buffer
         soft_timeout_triggered = false
 
         # pgroup: 0 puts the child in its own process group so that Ctrl-C
@@ -138,12 +121,12 @@ module Clacky
 
                   return format_timeout_result(
                     command,
-                    stdout_buffer.string,
-                    stderr_buffer.string,
+                    stdout_buffer.to_s,
+                    stderr_buffer.to_s,
                     elapsed,
                     :hard_timeout,
                     hard_timeout,
-                    max_output_lines
+                    stdout_buffer.truncated? || stderr_buffer.truncated?
                   )
                 end
 
@@ -151,8 +134,8 @@ module Clacky
                 if elapsed > soft_timeout && !soft_timeout_triggered
                   soft_timeout_triggered = true
 
-                  interaction = detect_interaction(stdout_buffer.string) ||
-                                detect_interaction(stderr_buffer.string) ||
+                  interaction = detect_interaction(stdout_buffer.to_s) ||
+                                detect_interaction(stderr_buffer.to_s) ||
                                 detect_sudo_waiting(command, wait_thr)
                   if interaction
                     Process.kill('TERM', -wait_thr.pid) rescue nil
@@ -160,10 +143,10 @@ module Clacky
                     stderr.close rescue nil
                     return format_waiting_input_result(
                       command,
-                      stdout_buffer.string,
-                      stderr_buffer.string,
+                      stdout_buffer.to_s,
+                      stderr_buffer.to_s,
                       interaction,
-                      max_output_lines
+                      stdout_buffer.truncated? || stderr_buffer.truncated?
                     )
                   end
                 end
@@ -178,11 +161,11 @@ module Clacky
                         data = io.read_nonblock(4096)
                         if io == stdout
                           utf8 = Clacky::Utils::Encoding.to_utf8(data)
-                          stdout_buffer.write(data)
+                          stdout_buffer.push_lines(utf8)
                           on_output.call(:stdout, utf8) if on_output
                         else
                           utf8 = Clacky::Utils::Encoding.to_utf8(data)
-                          stderr_buffer.write(data)
+                          stderr_buffer.push_lines(utf8)
                           on_output.call(:stderr, utf8) if on_output
                         end
                       rescue IO::WaitReadable, EOFError
@@ -212,7 +195,8 @@ module Clacky
                   ready[0].each do |io|
                     buf = io == stdout ? stdout_buffer : stderr_buffer
                     begin
-                      buf.write(io.read_nonblock(4096))
+                      chunk = io.read_nonblock(4096)
+                      buf.push_lines(Clacky::Utils::Encoding.to_utf8(chunk))
                     rescue IO::WaitReadable
                       # not ready yet, keep waiting
                     rescue EOFError
@@ -223,17 +207,14 @@ module Clacky
               rescue StandardError
               end
 
-              stdout_output = stdout_buffer.string
-              stderr_output = stderr_buffer.string
-
               {
                 command: command,
-                stdout: truncate_output(stdout_output, max_output_lines),
-                stderr: truncate_output(stderr_output, max_output_lines),
+                stdout: stdout_buffer.to_s,
+                stderr: stderr_buffer.to_s,
                 exit_code: wait_thr.value.exitstatus,
                 success: wait_thr.value.success?,
                 elapsed: Time.now - start_time,
-                output_truncated: output_truncated?(stdout_output, stderr_output, max_output_lines)
+                output_truncated: stdout_buffer.truncated? || stderr_buffer.truncated?
               }
             ensure
               # Ensure child process group is killed when block exits
@@ -245,16 +226,16 @@ module Clacky
             end
           end
         rescue StandardError => e
-          stdout_output = stdout_buffer.string
-          stderr_output = "Error executing command: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
+          stdout_str = stdout_buffer.to_s
+          stderr_str = "Error executing command: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
 
           {
             command: command,
-            stdout: truncate_output(stdout_output, max_output_lines),
-            stderr: truncate_output(stderr_output, max_output_lines),
+            stdout: stdout_str,
+            stderr: stderr_str,
             exit_code: -1,
             success: false,
-            output_truncated: output_truncated?(stdout_output, stderr_output, max_output_lines)
+            output_truncated: stdout_buffer.truncated?
           }
         end
       end
@@ -396,24 +377,22 @@ module Clacky
         { type: "password", line: "[sudo] password:" }
       end
 
-      def format_waiting_input_result(command, stdout, stderr, interaction, max_output_lines)
-        truncated_stdout = truncate_output(stdout, max_output_lines)
-        truncated_stderr = truncate_output(stderr, max_output_lines)
+      def format_waiting_input_result(command, stdout, stderr, interaction, truncated)
         {
           command: command,
-          stdout: truncated_stdout,
-          stderr: truncated_stderr,
+          stdout: stdout,
+          stderr: stderr,
           exit_code: -2,
           success: false,
           state: 'WAITING_INPUT',
           interaction_type: interaction[:type],
           interaction: interaction,
-          message: format_waiting_message(truncated_stdout, interaction),
-          output_truncated: output_truncated?(stdout, stderr, max_output_lines)
+          message: format_waiting_message(interaction),
+          output_truncated: truncated
         }
       end
 
-      def format_waiting_message(output, interaction)
+      def format_waiting_message(interaction)
         password_hint = if interaction[:type] == "password"
           <<~HINT
 
@@ -426,9 +405,10 @@ module Clacky
           HINT
         end
 
+        # NOTE: Do NOT embed `output` here — the caller already has stdout/stderr
+        # in dedicated fields.  Including output here would duplicate tokens sent
+        # to the LLM (potentially 2×), causing unnecessarily high costs.
         <<~MSG
-          #{output}
-
           #{'=' * 60}
           [Terminal State: WAITING_INPUT]
           #{'=' * 60}
@@ -449,40 +429,17 @@ module Clacky
         output.lines.last&.strip.to_s[0..200]
       end
 
-      def format_timeout_result(command, stdout, stderr, elapsed, type, timeout, max_output_lines)
+      def format_timeout_result(command, stdout, stderr, elapsed, type, timeout, truncated)
         {
           command: command,
-          stdout: truncate_output(stdout, max_output_lines),
-          stderr: truncate_output(
-            stderr.empty? ? "Command timed out after #{elapsed.round(1)} seconds (#{type}=#{timeout}s)" : stderr,
-            max_output_lines
-          ),
+          stdout: stdout,
+          stderr: stderr.empty? ? "Command timed out after #{elapsed.round(1)} seconds (#{type}=#{timeout}s)" : stderr,
           exit_code: -1,
           success: false,
           state: 'TIMEOUT',
           timeout_type: type,
-          output_truncated: output_truncated?(stdout, stderr, max_output_lines)
+          output_truncated: truncated
         }
-      end
-
-      # Truncate output to max_lines and max line length, adding a truncation notice if needed
-      def truncate_output(output, max_lines)
-        return output if output.nil? || output.empty?
-
-        output = truncate_long_lines(output, MAX_LINE_CHARS)
-        lines = output.lines
-        return output if lines.length <= max_lines
-
-        truncated_lines = lines.first(max_lines)
-        truncation_notice = "\n\n... [Output truncated: showing #{max_lines} of #{lines.length} lines] ...\n"
-        truncated_lines.join + truncation_notice
-      end
-
-      # Check if output was truncated
-      def output_truncated?(stdout, stderr, max_lines)
-        stdout_lines = stdout&.lines&.length || 0
-        stderr_lines = stderr&.lines&.length || 0
-        stdout_lines > max_lines || stderr_lines > max_lines
       end
 
       def format_call(args)
@@ -507,35 +464,25 @@ module Clacky
         end
       end
 
-      # Format result for LLM consumption - limit output size to save tokens
-      # Maximum characters to include in LLM output
-      MAX_LLM_OUTPUT_CHARS = 4000
-      # Maximum characters per line before truncating (handles minified CSS/JS files)
-      MAX_LINE_CHARS = 500
-
       def format_result_for_llm(result)
         return result if result[:error]
 
         enc = Clacky::Utils::Encoding
-        command_name = extract_command_name(enc.to_utf8(result[:command].to_s))
 
-        # Apply truncate_and_save to all states including WAITING_INPUT and TIMEOUT
+        # stdout/stderr are already size-limited by the LimitStack buffer used
+        # during execution (MAX_LINE_CHARS per line, MAX_LLM_OUTPUT_CHARS total,
+        # MAX_LLM_OUTPUT_LINES rolling window).  No further truncation needed.
         stdout = enc.to_utf8(result[:stdout] || "")
         stderr = enc.to_utf8(result[:stderr] || "")
-
-        stdout_info = truncate_and_save(stdout, MAX_LLM_OUTPUT_CHARS, "stdout", command_name)
-        stderr_info = truncate_and_save(stderr, MAX_LLM_OUTPUT_CHARS, "stderr", command_name)
 
         compact = {
           command: enc.to_utf8(result[:command].to_s),
           exit_code: result[:exit_code] || 0,
           success: result[:success],
-          stdout: stdout_info[:content],
-          stderr: stderr_info[:content]
+          stdout: stdout,
+          stderr: stderr
         }
 
-        compact[:stdout_full] = stdout_info[:temp_file] if stdout_info[:temp_file]
-        compact[:stderr_full] = stderr_info[:temp_file] if stderr_info[:temp_file]
         compact[:output_truncated] = true if result[:output_truncated]
         compact[:elapsed] = result[:elapsed] if result[:elapsed]
 
@@ -543,7 +490,8 @@ module Clacky
         if result[:state] == 'WAITING_INPUT'
           compact[:state] = 'WAITING_INPUT'
           compact[:interaction_type] = result[:interaction_type]
-          compact[:message] = format_waiting_message(stdout_info[:content], result[:interaction_type] ? { type: result[:interaction_type], line: result.dig(:interaction, :line) || extract_last_line(stdout_info[:content]) } : { type: 'question', line: extract_last_line(stdout_info[:content]) })
+          interaction = result[:interaction_type] ? { type: result[:interaction_type], line: result.dig(:interaction, :line) || extract_last_line(stdout) } : { type: 'question', line: extract_last_line(stdout) }
+          compact[:message] = format_waiting_message(interaction)
         end
 
         # Preserve TIMEOUT state fields
@@ -555,66 +503,20 @@ module Clacky
         compact
       end
 
-      # Extract command name from full command for temp file naming
-      def extract_command_name(command)
-        first_word = command.strip.split(/\s+/).first
-        File.basename(first_word, ".*")
+      # Create a new output buffer with write-time limits.
+      # - max_line_chars: each line is truncated at this length on push
+      #   (prevents single-line minified JSON/CSS from filling the budget)
+      # - max_chars: stops accepting content once total chars are exhausted
+      #   (hard ceiling on tokens sent to LLM)
+      # - max_size: rolling window — keeps the LAST N lines
+      #   (preserves the most recent, relevant tail of long output)
+      private def new_output_buffer
+        Clacky::Utils::LimitStack.new(
+          max_size: MAX_LLM_OUTPUT_LINES,
+          max_line_chars: MAX_LINE_CHARS,
+          max_chars: MAX_LLM_OUTPUT_CHARS
+        )
       end
-
-      # Truncate output for LLM and optionally save full content to temp file
-      def truncate_and_save(output, max_chars, label, command_name)
-        return { content: "", temp_file: nil } if output.empty?
-
-        output = truncate_long_lines(output, MAX_LINE_CHARS)
-        return { content: output, temp_file: nil } if output.length <= max_chars
-
-        safe_name = command_name.gsub(/[^\w\-.]/, "_")[0...50]
-        temp_dir = Dir.mktmpdir
-        temp_file = File.join(temp_dir, "#{safe_name}_#{Time.now.strftime("%Y%m%d_%H%M%S")}.output")
-        File.write(temp_file, output)
-
-        lines = output.lines
-        return { content: output, temp_file: nil } if lines.length <= 2
-
-        notice_overhead = 200
-        available_chars = max_chars - notice_overhead
-
-        first_part = []
-        accumulated = 0
-        lines.each do |line|
-          break if accumulated + line.length > available_chars
-          first_part << line
-          accumulated += line.length
-        end
-
-        total_lines = lines.length
-        shown_lines = first_part.length
-
-        notice = if label == "stderr"
-          "\n... [Error output truncated for LLM: showing #{shown_lines} of #{total_lines} lines, full content: #{temp_file} (use grep to search)] ...\n"
-        else
-          "\n... [Output truncated for LLM: showing #{shown_lines} of #{total_lines} lines, full content: #{temp_file} (use grep to search)] ...\n"
-        end
-
-        { content: first_part.join + notice, temp_file: temp_file }
-      end
-
-      # Truncate individual lines that exceed max_line_chars
-      # Useful for minified CSS/JS files where a single line can be megabytes
-      def truncate_long_lines(output, max_line_chars)
-        lines = output.lines
-        return output if lines.none? { |l| l.chomp.length > max_line_chars }
-
-        lines.map do |line|
-          chopped = line.chomp
-          if chopped.length > max_line_chars
-            "#{chopped[0...max_line_chars]}... [line truncated: #{chopped.length} chars total]\n"
-          else
-            line
-          end
-        end.join
-      end
-
     end
   end
 end

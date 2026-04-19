@@ -4,45 +4,52 @@ RSpec.describe Clacky::Tools::SafeShell do
   let(:tool) { described_class.new }
 
   describe "#execute" do
+    # Truncation is now enforced at write-time by LimitStack.
+    # MAX_LLM_OUTPUT_LINES=500, MAX_LLM_OUTPUT_CHARS=4000, MAX_LINE_CHARS=500.
+    # max_output_lines param is accepted for backward-compat but ignored.
+    # No "Output truncated" text is injected into stdout.
     context "output truncation" do
       it "does not truncate short output" do
-        result = tool.execute(command: "echo 'Line 1\nLine 2\nLine 3'", max_output_lines: 10)
+        result = tool.execute(command: "echo 'hello'")
 
         expect(result[:exit_code]).to eq(0)
         expect(result[:success]).to be true
         expect(result[:output_truncated]).to be false
-        expect(result[:stdout].lines.count).to be <= 10
       end
 
-      it "truncates long output when exceeding max_output_lines" do
-        # Generate command that outputs many lines
-        result = tool.execute(command: "seq 1 500", max_output_lines: 100)
+      it "sets output_truncated:true when lines exceed MAX_LLM_OUTPUT_LINES (500)" do
+        result = tool.execute(command: "seq 1 600")
 
         expect(result[:exit_code]).to eq(0)
         expect(result[:success]).to be true
         expect(result[:output_truncated]).to be true
-        # Should be truncated to ~100 lines plus truncation notice
-        expect(result[:stdout].lines.count).to be <= 105
-        expect(result[:stdout]).to include("Output truncated")
+        # rolling window: keeps last 500 lines — stdout ends near 600
+        expect(result[:stdout]).to include("600")
+        expect(result[:stdout].lines.count).to be <= 500
       end
 
-      it "uses default max_output_lines of 1000 when not specified" do
-        # Generate more than 1000 lines
-        result = tool.execute(command: "seq 1 2000")
+      it "sets output_truncated:true when chars exceed MAX_LLM_OUTPUT_CHARS (4000)" do
+        # 25 lines × 200 chars ≈ 5000 chars > 4000 budget
+        result = tool.execute(command: "ruby -e '25.times { puts \"x\" * 200 }'")
 
         expect(result[:exit_code]).to eq(0)
         expect(result[:success]).to be true
         expect(result[:output_truncated]).to be true
-        # Should be truncated to ~1000 lines plus truncation notice
-        expect(result[:stdout].lines.count).to be <= 1005
+        expect(result[:stdout].length).to be <= Clacky::Tools::Shell::MAX_LLM_OUTPUT_CHARS
       end
 
       it "handles empty output" do
-        result = tool.execute(command: "echo -n ''", max_output_lines: 10)
+        result = tool.execute(command: "echo -n ''")
 
         expect(result[:exit_code]).to eq(0)
         expect(result[:success]).to be true
         expect(result[:output_truncated]).to be false
+      end
+
+      it "accepts max_output_lines param without error (backward-compat)" do
+        result = tool.execute(command: "echo ok", max_output_lines: 10)
+        expect(result[:exit_code]).to eq(0)
+        expect(result[:stdout]).to include("ok")
       end
     end
 
@@ -237,8 +244,12 @@ RSpec.describe Clacky::Tools::SafeShell do
   end
 
   describe "#format_result_for_llm" do
-    it "truncates long stdout output to save tokens" do
-      # Create a result with very long output (over 2000 chars)
+    # format_result_for_llm no longer truncates stdout/stderr — truncation is
+    # enforced at write-time by the LimitStack buffer inside #execute.
+    # When a pre-built result hash is passed in directly, content is forwarded
+    # as-is (only encoding is sanitised).
+
+    it "passes through stdout without truncation" do
       long_output = "Line of text\n" * 500  # 6500+ chars
       result = {
         command: "generate_large_output",
@@ -250,13 +261,12 @@ RSpec.describe Clacky::Tools::SafeShell do
 
       compact = tool.format_result_for_llm(result)
 
-      expect(compact[:stdout].length).to be < long_output.length
-      expect(compact[:stdout]).to include("Output truncated for LLM")
+      expect(compact[:stdout]).to eq(long_output)
       expect(compact[:exit_code]).to eq(0)
       expect(compact[:success]).to be true
     end
 
-    it "truncates long stderr output to save tokens" do
+    it "passes through stderr without truncation" do
       long_error = "Error line\n" * 500  # 5500+ chars
       result = {
         command: "failing_command",
@@ -268,8 +278,7 @@ RSpec.describe Clacky::Tools::SafeShell do
 
       compact = tool.format_result_for_llm(result)
 
-      expect(compact[:stderr].length).to be < long_error.length
-      expect(compact[:stderr]).to include("Error output truncated for LLM")
+      expect(compact[:stderr]).to eq(long_error)
     end
 
     it "preserves short output without truncation" do
@@ -353,8 +362,9 @@ RSpec.describe Clacky::Tools::SafeShell do
       expect(compact[:elapsed]).to eq(1.234)
     end
 
-    it "truncates individual long lines (e.g. minified CSS/JS)" do
-      # Simulate minified CSS: only 2 lines but each is huge
+    it "line-level truncation now happens at write-time (LimitStack), not in format_result_for_llm" do
+      # format_result_for_llm passes content through as-is; line truncation is
+      # enforced by Shell::MAX_LINE_CHARS (500) at the point of collection.
       long_line = ".hover\:opacity-50{opacity:.5}" + ("a" * 50000) + "\n"
       minified_output = long_line * 2
       result = {
@@ -367,15 +377,12 @@ RSpec.describe Clacky::Tools::SafeShell do
 
       compact = tool.format_result_for_llm(result)
 
-      expect(compact[:stdout].length).to be < minified_output.length
-      expect(compact[:stdout]).to include("line truncated")
+      # Passed through unchanged (no truncation at this stage)
+      expect(compact[:stdout]).to eq(minified_output)
     end
 
-    it "truncate_long_lines is accessible from SafeShell (inheritance check)" do
-      # Regression test: private def in parent class breaks subclass access
-      expect { tool.truncate_long_lines("a" * 600 + "\n", 500) }.not_to raise_error
-      result = tool.truncate_long_lines("a" * 600 + "\n", 500)
-      expect(result).to include("line truncated")
+    it "MAX_LINE_CHARS constant is accessible from SafeShell (inheritance check)" do
+      expect(Clacky::Tools::SafeShell::MAX_LINE_CHARS).to eq(500)
     end
   end
 

@@ -63,25 +63,53 @@ RSpec.describe Clacky::Tools::Shell do
 
   # ---------------------------------------------------------------------------
   # Output truncation
+  #
+  # Truncation is now enforced at write-time by LimitStack, not post-hoc.
+  # Constants (Shell::MAX_LLM_OUTPUT_LINES=500, Shell::MAX_LLM_OUTPUT_CHARS=4000,
+  # Shell::MAX_LINE_CHARS=500) are fixed — max_output_lines param is accepted for
+  # backward-compat but no longer changes the behaviour.
+  # Truncated output surfaces as `output_truncated: true`; no "Output truncated"
+  # marker is injected into stdout.
   # ---------------------------------------------------------------------------
   describe "#execute — output truncation" do
     it "does not truncate short output" do
-      result = tool.execute(command: "seq 1 5", max_output_lines: 100)
+      result = tool.execute(command: "seq 1 5")
       expect(result[:output_truncated]).to be false
-      expect(result[:stdout]).not_to include("truncated")
+      expect(result[:stdout]).to include("1")
+      expect(result[:stdout]).to include("5")
     end
 
-    it "truncates output exceeding max_output_lines" do
-      result = tool.execute(command: "seq 1 500", max_output_lines: 50)
+    it "sets output_truncated:true when lines exceed MAX_LLM_OUTPUT_LINES (500)" do
+      # seq 1 600 emits 600 lines — more than the 500-line rolling window
+      result = tool.execute(command: "seq 1 600")
+      expect(result[:exit_code]).to eq(0)
       expect(result[:output_truncated]).to be true
-      expect(result[:stdout]).to include("Output truncated")
-      expect(result[:stdout].lines.count).to be <= 55
+      # rolling window keeps the LAST 500 lines, so stdout should end near 600
+      expect(result[:stdout]).to include("600")
+      expect(result[:stdout].lines.count).to be <= 500
     end
 
-    it "uses default max_output_lines of 1000" do
-      result = tool.execute(command: "seq 1 2000")
+    it "sets output_truncated:true when chars exceed MAX_LLM_OUTPUT_CHARS (4000)" do
+      # Each line is "x" * 200 + newline = 201 chars; 25 lines ≈ 5025 chars > 4000
+      result = tool.execute(command: "ruby -e '25.times { puts \"x\" * 200 }'")
+      expect(result[:exit_code]).to eq(0)
       expect(result[:output_truncated]).to be true
-      expect(result[:stdout].lines.count).to be <= 1005
+      expect(result[:stdout].length).to be <= Clacky::Tools::Shell::MAX_LLM_OUTPUT_CHARS
+    end
+
+    it "truncates individual lines exceeding MAX_LINE_CHARS (500)" do
+      # Print one very long line (2000 chars)
+      result = tool.execute(command: "ruby -e 'puts \"A\" * 2000'")
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:output_truncated]).to be true
+      # The stored line should be at most MAX_LINE_CHARS characters (plus newline)
+      expect(result[:stdout].lines.first.chomp.length).to be <= Clacky::Tools::Shell::MAX_LINE_CHARS
+    end
+
+    it "accepts max_output_lines param without error (backward-compat)" do
+      result = tool.execute(command: "echo ok", max_output_lines: 10)
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:stdout]).to include("ok")
     end
   end
 
@@ -363,20 +391,24 @@ RSpec.describe Clacky::Tools::Shell do
       expect(compact[:stdout]).to eq("hello\n")
     end
 
-    it "truncates large WAITING_INPUT output to MAX_LLM_OUTPUT_CHARS" do
+    # format_result_for_llm no longer truncates — truncation happens at write-time
+    # inside the LimitStack buffer during command execution. When a pre-built result
+    # hash (with already-large stdout) is passed in, it is forwarded as-is.
+    it "passes through WAITING_INPUT output without modification" do
       long_out = "x\n" * 3000
       result = { state: "WAITING_INPUT", command: "cat", stdout: long_out, stderr: "", exit_code: -2, success: false, interaction_type: "question", interaction: { type: "question", line: "x" } }
       compact = tool.format_result_for_llm(result)
-      expect(compact[:stdout].length).to be < long_out.length
-      expect(compact[:message].length).to be < long_out.length
+      expect(compact[:state]).to eq("WAITING_INPUT")
+      expect(compact[:message]).to include("WAITING_INPUT")
     end
 
-    it "truncates long stdout for LLM" do
+    it "passes through stdout without truncation (truncation is done at collection time)" do
       long_out = "x\n" * 3000
       result = { command: "cmd", exit_code: 0, success: true, stdout: long_out, stderr: "" }
       compact = tool.format_result_for_llm(result)
-      expect(compact[:stdout].length).to be < long_out.length
-      expect(compact[:stdout]).to include("truncated")
+      # format_result_for_llm does NOT truncate; it only sanitises encoding
+      expect(compact[:stdout]).to eq(long_out)
+      expect(compact[:stdout]).not_to include("truncated")
     end
 
     it "preserves short output without truncation" do
