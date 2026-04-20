@@ -11,7 +11,8 @@ module Clacky
     # If the LLM determines it's valuable, it invokes skill-creator in "quick mode"
     # to generate a new skill automatically.
     module SkillAutoCreator
-      # Default minimum iterations to consider auto-creating a skill
+      # Default minimum iterations to consider auto-creating a skill.
+      # This counts iterations within the current task only, not session-cumulative.
       DEFAULT_AUTO_CREATE_THRESHOLD = 12
 
       # Check if we should prompt the LLM to consider creating a new skill
@@ -31,12 +32,15 @@ module Clacky
       private def should_auto_create_skill?
         threshold = skill_evolution_config[:auto_create_threshold] || DEFAULT_AUTO_CREATE_THRESHOLD
 
+        # Calculate iterations within THIS TASK ONLY (not session-cumulative)
+        task_iterations = @iterations - @task_start_iterations
+
         # Conditions (ALL must be true):
-        # 1. Task was complex enough (high iteration count)
+        # 1. Current task was complex enough (high iteration count within this task)
         # 2. No skill was explicitly invoked (not a skill refinement session)
         # 3. Task succeeded (not an error state)
 
-        @iterations >= threshold &&
+        task_iterations >= threshold &&
           !@skill_execution_context &&
           !skill_invoked_in_history?
       end
@@ -58,7 +62,7 @@ module Clacky
           ═══════════════════════════════════════════════════════════════
           SKILL AUTO-CREATION MODE
           ═══════════════════════════════════════════════════════════════
-          You just completed a complex task (#{@iterations} iterations) without using any existing skill.
+          You just completed a complex task without using any existing skill.
 
           ## Analysis
 

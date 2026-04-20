@@ -13,8 +13,7 @@ module Clacky
     # to update the skill.
     module SkillReflector
       # Minimum iterations for a skill execution to warrant reflection.
-      # Raised to 5 to filter out lightweight skill invocations (e.g. platform
-      # management skills like cron-task-creator that the user triggered incidentally).
+      # This counts iterations within the skill execution only, not session-cumulative.
       MIN_SKILL_ITERATIONS = 5
 
       # Check if we should reflect on the skill that just executed
@@ -34,6 +33,8 @@ module Clacky
 
         skill_name = @skill_execution_context[:skill_name]
         start_iteration = @skill_execution_context[:start_iteration]
+        
+        # Calculate iterations within the skill execution (not session-cumulative)
         iterations = @iterations - start_iteration
 
         # Only reflect if the skill actually ran for a meaningful number of iterations
@@ -42,7 +43,7 @@ module Clacky
         # Fork an isolated subagent to reflect + improve — does NOT touch main history
         @ui&.show_info("Reflecting on skill execution: #{skill_name}")
         subagent = fork_subagent
-        subagent.run(build_skill_reflection_prompt(skill_name, iterations))
+        subagent.run(build_skill_reflection_prompt(skill_name))
 
         # Clear the context so we don't reflect again
         @skill_execution_context = nil
@@ -50,14 +51,13 @@ module Clacky
 
       # Build the reflection prompt content
       # @param skill_name [String]
-      # @param iterations [Integer]
       # @return [String]
-      private def build_skill_reflection_prompt(skill_name, iterations)
+      private def build_skill_reflection_prompt(skill_name)
         <<~PROMPT
           ═══════════════════════════════════════════════════════════════
           SKILL REFLECTION MODE
           ═══════════════════════════════════════════════════════════════
-          You just executed the skill "#{skill_name}" over #{iterations} iterations.
+          You just executed the skill "#{skill_name}".
 
           ## Quick Analysis
 

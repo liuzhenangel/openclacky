@@ -324,6 +324,8 @@ module Clacky
       begin
         # Track if request_user_feedback was called
         awaiting_user_feedback = false
+        # Track if task was interrupted by user (denied tool execution)
+        task_interrupted = false
 
         loop do
 
@@ -402,6 +404,7 @@ module Clacky
 
           # Check if user denied any tool
           if action_result[:denied]
+            task_interrupted = true
             # If user provided feedback, treat it as a user question/instruction
             if action_result[:feedback] && !action_result[:feedback].empty?
               # Add user feedback as a new user message with system_injected marker
@@ -429,8 +432,11 @@ module Clacky
       end
 
         # Run skill evolution hooks after main loop completes
+        # Skip if task was interrupted by user (denied tool) or awaiting user feedback
         # Only for main agent (not subagents) to avoid recursive evolution
-        run_skill_evolution_hooks unless @is_subagent
+        unless @is_subagent || task_interrupted || awaiting_user_feedback
+          run_skill_evolution_hooks
+        end
 
         if @is_subagent
           # Parent agent (skill_manager) prints the completion summary; skip here.
