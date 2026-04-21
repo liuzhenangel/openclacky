@@ -11,9 +11,7 @@ module Clacky
     # Skill discovery locations (in priority order: lower index = lower priority)
     LOCATIONS = [
       :default,            # gem's built-in default skills (lowest priority)
-      :global_claude,      # ~/.claude/skills/ (compatibility)
       :global_clacky,      # ~/.clacky/skills/
-      :project_claude,     # .claude/skills/ (project-level compatibility)
       :project_clacky,     # .clacky/skills/ (highest priority among plain skills)
       :brand               # ~/.clacky/brand_skills/ (encrypted, license-gated)
     ].freeze
@@ -25,7 +23,7 @@ module Clacky
 
     # Initialize the skill loader and automatically load all skills
     # @param working_dir [String, nil] Current working directory for project-level discovery.
-    #   When nil, project-level skills (.clacky/skills/, .claude/skills/) are not loaded,
+    #   When nil, project-level skills (.clacky/skills/) are not loaded,
     #   making the loader project-agnostic (used by WebUI server).
     # @param brand_config [Clacky::BrandConfig, nil] Optional brand config used to
     #   decrypt brand skills. When nil, brand skills are silently skipped.
@@ -52,14 +50,12 @@ module Clacky
       clear
 
       load_default_skills
-      load_global_claude_skills
       load_global_clacky_skills
       
       # Only load project-level skills when working_dir is explicitly provided.
       # When nil (e.g. WebUI server mode), skip project skills to keep the loader
       # project-agnostic and only expose global skills.
       if @working_dir
-        load_project_claude_skills
         load_project_clacky_skills
       end
       
@@ -101,7 +97,7 @@ module Clacky
 
         # Skip brand skill when a local plain skill with the same name is already
         # loaded (global_clacky or project_clacky). The local copy shadows it.
-        if @skills[skill_name] && %i[global_clacky project_clacky project_claude global_claude].include?(@loaded_from[skill_name])
+        if @skills[skill_name] && %i[global_clacky project_clacky].include?(@loaded_from[skill_name])
           @shadowed_by_local ||= {}
           @shadowed_by_local[skill_name] = @loaded_from[skill_name]
           next
@@ -125,13 +121,6 @@ module Clacky
       @shadowed_by_local || {}
     end
 
-    # Load skills from ~/.claude/skills/ (lowest priority, compatibility)
-    # @return [Array<Skill>]
-    def load_global_claude_skills
-      global_claude_dir = Pathname.new(ENV.fetch("HOME", "~")).join(".claude", "skills")
-      load_skills_from_directory(global_claude_dir, :global_claude)
-    end
-
     # Load skills from ~/.clacky/skills/ (user global)
     # @return [Array<Skill>]
     def load_global_clacky_skills
@@ -139,51 +128,11 @@ module Clacky
       load_skills_from_directory(global_clacky_dir, :global_clacky)
     end
 
-    # Load skills from .claude/skills/ (project-level compatibility)
-    # @return [Array<Skill>]
-    def load_project_claude_skills
-      project_claude_dir = Pathname.new(@working_dir).join(".claude", "skills")
-      load_skills_from_directory(project_claude_dir, :project_claude)
-    end
-
     # Load skills from .clacky/skills/ (project-level, highest priority)
     # @return [Array<Skill>]
     def load_project_clacky_skills
       project_clacky_dir = Pathname.new(@working_dir).join(".clacky", "skills")
       load_skills_from_directory(project_clacky_dir, :project_clacky)
-    end
-
-    # Load skills from nested .claude/skills/ directories (monorepo support)
-    # @return [Array<Skill>]
-    def load_nested_project_skills
-      working_path = Pathname.new(@working_dir)
-
-      # Find all nested .claude/skills/ directories
-      nested_dirs = []
-      begin
-        Dir.glob("**/.claude/skills/", base: @working_dir).each do |relative_path|
-          nested_dirs << working_path.join(relative_path)
-        end
-      rescue ArgumentError
-        # Skip if working_dir contains special characters
-      end
-
-      # Filter out the main project .claude/skills/ (already loaded)
-      main_project_skills = working_path.join(".claude", "skills").realpath
-
-      nested_dirs.each do |dir|
-        next if dir.realpath == main_project_skills
-
-        # Determine the source path for priority resolution
-        # Use the parent directory of .claude as the source
-        source_path = dir.parent
-
-        # Determine skill identifier based on relative path from working_dir
-        relative_to_working = dir.relative_path_from(working_path).to_s
-        skill_name = relative_to_working.gsub(".claude/skills/", "").gsub("/", "-")
-
-        load_single_skill(dir, source_path, skill_name)
-      end
     end
 
     # Get all loaded skills
@@ -340,11 +289,9 @@ module Clacky
       skills = []
       dir.children.select(&:directory?).each do |skill_dir|
         source_path = case source_type
-        when :global_claude
-          Pathname.new(ENV.fetch("HOME", "~")).join(".claude")
         when :global_clacky
           Pathname.new(ENV.fetch("HOME", "~")).join(".clacky")
-        when :project_claude, :project_clacky
+        when :project_clacky
           Pathname.new(@working_dir)
         else
           skill_dir
@@ -402,12 +349,11 @@ module Clacky
     #   to form a slash command from).
     # - Respects priority ordering for duplicates; enforces MAX_SKILLS cap.
     # @param skill [Skill]
-    # @param source [Symbol] one of :default, :global_claude, :global_clacky,
-    #   :project_claude, :project_clacky, :brand
+    # @param source [Symbol] one of :default, :global_clacky, :project_clacky, :brand
     # @return [Skill, nil] nil when the skill was rejected (duplicate/limit)
     private def register_skill(skill, source:)
       id             = skill.identifier
-      priority_order = %i[default global_claude global_clacky project_claude project_clacky brand]
+      priority_order = %i[default global_clacky project_clacky brand]
 
       # --- duplicate check ---
       if (existing = @skills[id])

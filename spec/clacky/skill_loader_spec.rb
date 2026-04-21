@@ -33,7 +33,7 @@ RSpec.describe Clacky::SkillLoader do
         loader = described_class.new(working_dir: working_dir, brand_config: nil)
         skills = loader.load_all
 
-        # User may have global skills in ~/.claude/skills/ or ~/.clacky/skills/
+        # User may have global skills in ~/.clacky/skills/
         # so we just verify that default skill is included
         expect(skills.size).to be >= 1
         expect(skills.map(&:identifier)).to include("skill-add")
