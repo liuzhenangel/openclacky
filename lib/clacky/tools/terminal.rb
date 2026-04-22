@@ -500,7 +500,20 @@ module Clacky
       private def spawn_shell(args:, shell_name:, command:, cwd:, env:)
         spawn_env = {
           "TERM" => "xterm-256color",
-          "PS1"  => ""
+          "PS1"  => "",
+          # Prevent our sub-shell from polluting the user's ~/.zsh_history
+          # (or ~/.bash_history). We fork a full interactive login shell to
+          # get rbenv/nvm/brew-shellenv/mise loaded, but every command we
+          # feed it (including our `{ cmd; }; printf "__CLACKY_DONE_..."`
+          # wrappers) would otherwise land in the user's shared HISTFILE
+          # on exit.
+          #
+          # Note: zsh/bash rc files may *override* HISTFILE, so this is
+          # only the first line of defence — `install_marker` re-disables
+          # history after rc has run. See that method for details.
+          "HISTFILE" => "/dev/null",
+          "HISTSIZE" => "0",
+          "SAVEHIST" => "0"
         }
         (env || {}).each { |k, v| spawn_env[k.to_s] = v.to_s }
 
@@ -573,7 +586,8 @@ module Clacky
         end
       end
 
-      # Install minimal shell setup:
+      # Install minimal shell setup (runs AFTER rc has loaded):
+      #   - disable history (HISTFILE=/dev/null + unset HISTFILE)
       #   - disable input echo (stty -echo)
       #   - empty PS1/PS2 so prompt lines don't add noise
       #
@@ -583,7 +597,18 @@ module Clacky
       # an inline printf marker — see `write_user_command`. Same bytes work
       # in bash, zsh, and anything POSIX-ish.
       private def install_marker(session)
-        setup_line = %Q{stty -echo 2>/dev/null; PS1=""; PS2=""\n}
+        # Order matters:
+        #   1. Disable history BEFORE anything else, so this setup line
+        #      itself never lands in ~/.zsh_history / ~/.bash_history.
+        #      We already set HISTFILE=/dev/null in spawn_env, but the
+        #      user's rc (.zshrc/.bashrc) may override it — so we reset
+        #      it here, AFTER rc has run. Unsetting HISTFILE is the
+        #      belt-and-braces: zsh/bash won't write history on exit if
+        #      HISTFILE is unset.
+        #   2. stty -echo stops the PTY from echoing our wrapper lines
+        #      back into captured output.
+        #   3. Empty PS1/PS2 keeps prompt noise out of captured output.
+        setup_line = %Q{HISTFILE=/dev/null; HISTSIZE=0; SAVEHIST=0; unset HISTFILE 2>/dev/null; stty -echo 2>/dev/null; PS1=""; PS2=""\n}
         session.mutex.synchronize { session.writer.write(setup_line) }
 
         # Emit the first marker by running a no-op through the same wrapper

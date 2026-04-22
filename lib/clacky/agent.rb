@@ -190,6 +190,14 @@ module Clacky
     end
 
     def run(user_input, files: [])
+      # Show the "thinking" indicator as early as possible so the user gets
+      # immediate feedback after sending a message. Without this the UI stays
+      # silent during synchronous setup work (system prompt assembly, file
+      # parsing, history compression checks) before the first LLM call. The
+      # subsequent call_llm will re-emit show_progress, which is an idempotent
+      # update on the same progress UI element.
+      @ui&.show_progress
+
       # Start new task for Time Machine
       task_id = start_new_task
 
@@ -691,28 +699,21 @@ module Clacky
           # Inject working_dir so tools don't rely on Dir.chdir global state
           args[:working_dir] = @working_dir if @working_dir
 
-          # Automatic progress display after 2 seconds for any tool execution
+          # Show progress immediately for every tool execution so the user
+          # always knows the agent is working. (Previously we deferred this by
+          # 2 seconds to avoid flicker in the legacy CLI TUI; that trade-off is
+          # no longer desirable now that progress is a first-class UI state in
+          # the Web UI and structured JSON UIs.)
           progress_shown = false
-          progress_timer = nil
-
           if @ui
             progress_message = build_tool_progress_message(call[:name], args)
-
-            progress_timer = Thread.new do
-              sleep 2
-              @ui.show_progress(progress_message, prefix_newline: false)
-              progress_shown = true
-            end
+            @ui.show_progress(progress_message, prefix_newline: false)
+            progress_shown = true
           end
 
           begin
             result = tool.execute(**args)
           ensure
-            # Cancel timer and clear progress if shown
-            if progress_timer
-              progress_timer.kill
-              progress_timer.join
-            end
             @ui&.show_progress(phase: "done") if progress_shown
           end
 
