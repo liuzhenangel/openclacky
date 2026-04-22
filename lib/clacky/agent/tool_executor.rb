@@ -21,7 +21,7 @@ module Clacky
           #   confirm_all  → human present, truly wait for user input
           true
         when :confirm_safes
-          # Use SafeShell integration for safety check
+          # Use Security module to check auto-execution safety
           is_safe_operation?(tool_name, tool_params)
         else
           false
@@ -33,13 +33,14 @@ module Clacky
       # @param tool_params [Hash, String] Tool parameters
       # @return [Boolean] true if safe operation
       def is_safe_operation?(tool_name, tool_params = {})
-        # For shell commands, use SafeShell to check safety
-        if tool_name.to_s.downcase == 'shell' || tool_name.to_s.downcase == 'safe_shell'
+        # For terminal commands, defer to Security layer for the verdict.
+        if tool_name.to_s.downcase == 'terminal'
           params = tool_params.is_a?(String) ? JSON.parse(tool_params) : tool_params
           command = params[:command] || params['command']
-          return false unless command
+          # No command = session_id continuation / kill / action → safe by default.
+          return true unless command
 
-          return Tools::SafeShell.command_safe_for_auto_execution?(command)
+          return Clacky::Tools::Security.command_safe_for_auto_execution?(command)
         end
 
         if tool_name.to_s.downcase == 'edit' || tool_name.to_s.downcase == 'write'
@@ -140,10 +141,10 @@ module Clacky
             else
               "Write(#{filename}) - create new"
             end
-          when "shell", "safe_shell"
+          when "terminal"
             cmd = args[:command] || ''
             display_cmd = cmd.length > 30 ? "#{cmd[0..27]}..." : cmd
-            "#{call[:name]}(\"#{display_cmd}\")"
+            "terminal(\"#{display_cmd}\")"
           else
             "Allow #{call[:name]}"
           end
@@ -241,7 +242,7 @@ module Clacky
       # @return [Boolean] true if tool is potentially slow
       private def potentially_slow_tool?(tool_name, args)
         case tool_name.to_s.downcase
-        when 'shell', 'safe_shell'
+        when 'terminal'
           # Check if the command is a slow command
           command = args[:command] || args['command']
           return false unless command
@@ -257,24 +258,20 @@ module Clacky
             /make\s+(test|build)/,
             /pytest/,
             /jest/,
-            /sleep\s+\d+/  # sleep command with duration
+            /sleep\s+\d+/
           ]
 
           slow_patterns.any? { |pattern| command.match?(pattern) }
         when 'web_fetch', 'web_search'
-          true  # Network operations can be slow
+          true
         else
-          false  # Most file operations are fast
+          false
         end
       end
 
-      # Build progress message for tool execution
-      # @param tool_name [String] Name of the tool
-      # @param args [Hash] Tool arguments
-      # @return [String] Progress message
       private def build_tool_progress_message(tool_name, args)
         case tool_name.to_s.downcase
-        when 'shell', 'safe_shell'
+        when 'terminal'
           "Running command"
         when 'web_fetch'
           "Fetching web page"

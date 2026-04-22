@@ -23,7 +23,7 @@ module Clacky
     #                      rendered output never contains replacement characters.
     #
     #   3. safe_check    – any String → ASCII-safe UTF-8 String for regex.
-    #                      Used only for security pattern matching (safe_shell).
+    #                      Used only for security pattern matching (terminal/Security).
     #                      Multibyte bytes are replaced with '?' so that Ruby's
     #                      regex engine operates on a plain ASCII-compatible
     #                      string without raising Encoding errors.

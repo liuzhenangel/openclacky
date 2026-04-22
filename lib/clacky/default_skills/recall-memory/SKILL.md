@@ -45,7 +45,7 @@ file_reader(path: "~/.clacky/memories/<filename>")
 
 2. Touch the file to update its mtime (LRU signal — keeps it surfaced in future recalls):
 ```
-safe_shell(command: "touch ~/.clacky/memories/<filename>")
+terminal(command: "touch ~/.clacky/memories/<filename>")
 ```
 
 Return ONLY the memory content, structured as:

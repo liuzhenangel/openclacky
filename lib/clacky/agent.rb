@@ -688,11 +688,6 @@ module Clacky
             args[:agent] = self
           end
 
-          # For safe_shell, skip safety check if user has already confirmed
-          if call[:name] == "safe_shell" || call[:name] == "shell"
-            args[:skip_safety_check] = true
-          end
-
           # Inject working_dir so tools don't rely on Dir.chdir global state
           args[:working_dir] = @working_dir if @working_dir
 
@@ -703,20 +698,10 @@ module Clacky
           if @ui
             progress_message = build_tool_progress_message(call[:name], args)
 
-            # For shell/safe_shell: inject on_output callback for real-time stdout streaming.
-            # The callback fires immediately on each read_nonblock chunk — no polling delay.
-            if (call[:name] == "shell" || call[:name] == "safe_shell") &&
-               @ui.respond_to?(:show_tool_stdout)
-              args[:on_output] = ->(stream, data) {
-                @ui.show_tool_stdout([data]) if stream == :stdout
-              }
-            end
-
             progress_timer = Thread.new do
               sleep 2
               @ui.show_progress(progress_message, prefix_newline: false)
               progress_shown = true
-              # Streaming is handled by on_output callback — no polling loop needed here
             end
           end
 
@@ -929,7 +914,7 @@ module Clacky
     end
 
     private def register_builtin_tools
-      @tool_registry.register(Tools::SafeShell.new)
+      @tool_registry.register(Tools::Terminal.new)
       @tool_registry.register(Tools::FileReader.new)
       @tool_registry.register(Tools::Write.new)
       @tool_registry.register(Tools::Edit.new)
@@ -938,7 +923,6 @@ module Clacky
       @tool_registry.register(Tools::WebSearch.new)
       @tool_registry.register(Tools::WebFetch.new)
       @tool_registry.register(Tools::TodoManager.new)
-      # @tool_registry.register(Tools::RunProject.new) # temporarily disabled
       @tool_registry.register(Tools::RequestUserFeedback.new)
       @tool_registry.register(Tools::InvokeSkill.new)
       @tool_registry.register(Tools::UndoTask.new)

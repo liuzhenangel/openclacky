@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Ensure all output is flushed immediately so users see live progress
-# even when the script is run inside a subprocess (safe_shell / Open3).
+# even when the script is run inside a subprocess (terminal / Open3).
 $stdout.sync = true
 $stderr.sync = true
 

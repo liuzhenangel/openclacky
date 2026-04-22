@@ -130,7 +130,7 @@ module Clacky
           For each qualifying topic:
             a. If a matching file exists → read it with `file_reader(path: "~/.clacky/memories/<filename>")`, then write an updated version (merge new + old, drop stale)
             b. If no matching file → create a new one at `~/.clacky/memories/<new-filename>.md`
-          Use the `write` tool to save each file. Do NOT use `safe_shell` or `file_reader` to list the directory.
+          Use the `write` tool to save each file. Do NOT use `terminal` or `file_reader` to list the directory.
 
           ## Hard constraints (CRITICAL)
           - Each file MUST stay under 4000 characters of content (after the frontmatter)

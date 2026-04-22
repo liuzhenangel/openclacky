@@ -7,7 +7,7 @@ auto_summarize: true
 forbidden_tools:
   - write
   - edit
-  - safe_shell
+  - terminal
   - web_search
 ---
 

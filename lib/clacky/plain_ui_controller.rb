@@ -43,9 +43,16 @@ module Clacky
       end
 
       display = case name
-                when "shell", "safe_shell"
+                when "terminal"
                   cmd = args_data.is_a?(Hash) ? (args_data[:command] || args_data["command"]) : args_data
-                  "$ #{cmd}"
+                  sid = args_data.is_a?(Hash) ? (args_data[:session_id] || args_data["session_id"]) : nil
+                  if cmd
+                    "$ #{cmd}"
+                  elsif sid
+                    "$ (session ##{sid})"
+                  else
+                    "$ terminal"
+                  end
                 when "write"
                   path = args_data.is_a?(Hash) ? (args_data[:path] || args_data["path"]) : args_data
                   "Write → #{path}"

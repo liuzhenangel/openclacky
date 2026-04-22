@@ -62,7 +62,7 @@ Fast, opinionated skill creation without user interaction. This mode is used by 
 ```
 invoke_skill(
   skill_name: "skill-creator",
-  task: "Create a skill to extract and summarize content from URLs. The skill should: 1) fetch the URL using safe_shell with curl, 2) parse the HTML to extract main text content, 3) generate a concise markdown summary. Expected input: URL string. Expected output: markdown summary with title and key points.",
+  task: "Create a skill to extract and summarize content from URLs. The skill should: 1) fetch the URL using terminal with curl, 2) parse the HTML to extract main text content, 3) generate a concise markdown summary. Expected input: URL string. Expected output: markdown summary with title and key points.",
   mode: "quick",
   suggested_name: "url-summarizer"
 )

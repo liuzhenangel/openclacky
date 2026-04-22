@@ -1,0 +1,776 @@
+# frozen_string_literal: true
+
+require "pty"
+require "securerandom"
+require "fileutils"
+require_relative "base"
+require_relative "security"
+require_relative "terminal/session_manager"
+require_relative "terminal/output_cleaner"
+require_relative "terminal/persistent_session"
+
+module Clacky
+  module Tools
+    # Unified terminal tool — the SINGLE entry point for running shell
+    # commands. Replaces the former `shell` + `safe_shell` tools.
+    #
+    # === AI-facing contract
+    #
+    # Five call shapes, all on one tool:
+    #
+    #   1) Run a command, wait for it:
+    #        terminal(command: "ls -la")
+    #        → { exit_code: 0, output: "..." }
+    #
+    #   2) Run a command that is expected to keep running (dev servers,
+    #      watchers, REPLs meant to stay open):
+    #        terminal(command: "rails s", background: true)
+    #      – collects ~2s of startup output, then:
+    #      – if it crashed in those 2s → { exit_code: N, output: "..." }
+    #      – if still alive           → { session_id: 7, state: "background",
+    #                                     output: "Puma starting..." }
+    #
+    #   3) A previous call returned a session_id because the command
+    #      blocked on input (sudo password, REPL, etc.). Answer it:
+    #        terminal(session_id: 3, input: "mypass\n")
+    #
+    #   4) Poll a running session for new output without sending anything:
+    #        terminal(session_id: 7, input: "")
+    #
+    #   5) Kill a stuck / no-longer-wanted session:
+    #        terminal(session_id: 7, kill: true)
+    #
+    # === Response handshake
+    #
+    #   - Response has `exit_code` → command finished.
+    #   - Response has `session_id` → command is still running;
+    #     look at `state`: "waiting" means blocked on input,
+    #     "background" means intentionally long-running.
+    #
+    # === Safety
+    #
+    # Every new `command` is routed through Clacky::Tools::Security before
+    # being handed to the shell. This:
+    #   - Blocks sudo / pkill clacky / eval / curl|bash / etc.
+    #   - Rewrites `rm` into `mv <trash>` so deletions are recoverable.
+    #   - Rewrites `curl ... | bash` into "download & review".
+    #   - Protects Gemfile / .env / .ssh / etc. from writes.
+    # `input` is NOT subject to these rules (it is a reply to an already-
+    # running program, not a fresh command).
+    class Terminal < Base
+      self.tool_name = "terminal"
+      self.tool_description = <<~DESC.strip
+        Execute shell commands with real PTY, interactive-prompt handling,
+        built-in safety (rm → trash, sudo blocked, secrets protected), and
+        long-running background session support.
+
+        Call shapes:
+          1) { command: "ls -la" }                          → run + wait
+          2) { command: "rails s", background: true }       → run, return
+                                                              after ~2s with
+                                                              a session_id if
+                                                              still alive
+          3) { session_id: 3, input: "mypass\\n" }          → reply to prompt
+          4) { session_id: 7, input: "" }                   → poll new output
+          5) { session_id: 7, kill: true }                  → stop
+
+        Response contract:
+          - `exit_code` in response → finished
+          - `session_id` in response → still running; check `state`
+              "waiting"    = blocked on input, respond with {session_id, input}
+              "background" = long-running (you asked for it)
+              "timeout"    = took longer than `timeout` without blocking
+
+        Byte escapes in `input`: "\\x03" Ctrl-C, "\\x04" Ctrl-D,
+        "\\t" Tab, "\\x1b" Esc.
+      DESC
+      self.tool_category = "system"
+      self.tool_parameters = {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "Shell command to execute. Use this to START a new command. Mutually exclusive with session_id."
+          },
+          background: {
+            type: "boolean",
+            description: "Declare that the command is expected to keep running (dev server, watcher, REPL that stays open). Collects ~2s of output then returns with a session_id if the process is still alive. If it exits in those 2s (crash / immediate failure), returns normally with exit_code."
+          },
+          session_id: {
+            type: "integer",
+            description: "Continue a running session. Use the id returned from a prior call. Must be paired with `input` (or `kill`)."
+          },
+          input: {
+            type: "string",
+            description: "Input to send to the running session. Typically ends with \\n. Empty string = poll for new output without sending anything. Byte escapes supported (\\x03 = Ctrl-C)."
+          },
+          cwd: {
+            type: "string",
+            description: "Working directory when starting a new command. Ignored when session_id is given."
+          },
+          env: {
+            type: "object",
+            description: "Extra environment variables when starting a new command. Ignored when session_id is given.",
+            additionalProperties: { type: "string" }
+          },
+          timeout: {
+            type: "integer",
+            description: "Max seconds to wait for a foreground command to finish or block. Default 15. Ignored for background (always ~2s)."
+          },
+          kill: {
+            type: "boolean",
+            description: "If true with session_id, kill the session."
+          }
+        }
+      }
+
+      MAX_LLM_OUTPUT_CHARS = 8_000
+      DEFAULT_TIMEOUT = 15
+      # How long output must be quiet before we assume the foreground command
+      # is waiting for input. 500ms matches the prior raw-mode tool.
+      DEFAULT_IDLE_MS = 500
+      # Background commands collect this many seconds of startup output so
+      # the agent can see crashes / readiness before getting the session_id.
+      BACKGROUND_COLLECT_SECONDS = 2
+      # Sentinel: when passed as idle_ms, disables idle early-return.
+      DISABLED_IDLE_MS = 10_000_000
+
+      # ---------------------------------------------------------------------
+      # Public entrypoint — dispatches on parameter shape
+      # ---------------------------------------------------------------------
+      def execute(command: nil, session_id: nil, input: nil, background: false,
+                  cwd: nil, env: nil, timeout: nil, kill: nil,
+                  working_dir: nil, **_ignored)
+        timeout = (timeout || DEFAULT_TIMEOUT).to_i
+        cwd ||= working_dir
+
+        # Kill
+        if kill
+          return { error: "session_id is required when kill: true" } if session_id.nil?
+          return do_kill(session_id.to_i)
+        end
+
+        # Continue / poll a running session
+        if session_id
+          return { error: "input is required when session_id is given" } if input.nil?
+          return do_continue(session_id.to_i, input.to_s, timeout: timeout)
+        end
+
+        # Start a new command
+        if command && !command.to_s.strip.empty?
+          return do_start(command.to_s, cwd: cwd, env: env, timeout: timeout,
+                          background: background ? true : false)
+        end
+
+        { error: "terminal: must provide either `command`, or `session_id`+`input`, or `session_id`+`kill: true`." }
+      rescue SecurityError => e
+        { error: "[Security] #{e.message}", security_blocked: true }
+      rescue StandardError => e
+        { error: "terminal failed: #{e.class}: #{e.message}", backtrace: e.backtrace.first(5) }
+      end
+
+      # Alias used by ToolExecutor to decide whether :confirm_safes mode
+      # should auto-execute without asking the user.
+      def self.command_safe_for_auto_execution?(command)
+        Clacky::Tools::Security.command_safe_for_auto_execution?(command)
+      end
+
+      # ---------------------------------------------------------------------
+      # 1) Start a new command
+      # ---------------------------------------------------------------------
+      private def do_start(command, cwd:, env:, timeout:, background:)
+        if cwd && !Dir.exist?(cwd.to_s)
+          return { error: "cwd does not exist: #{cwd}" }
+        end
+
+        # Security pre-flight: reject / rewrite dangerous commands before
+        # they ever reach the shell. Raises SecurityError on block.
+        safe_command = Clacky::Tools::Security.make_safe(
+          command,
+          project_root: cwd || Dir.pwd
+        )
+
+        # Background / dedicated path — never reuse the persistent shell,
+        # because these commands stay running and would occupy the slot.
+        if background
+          session = spawn_dedicated_session(cwd: cwd, env: env)
+          return session if session.is_a?(Hash) && session[:error]
+
+          write_user_command(session, safe_command)
+
+          return wait_and_package(
+            session,
+            timeout: BACKGROUND_COLLECT_SECONDS,
+            idle_ms: DISABLED_IDLE_MS,
+            background: true,
+            persistent: false,
+            original_command: command,
+            rewritten_command: safe_command
+          )
+        end
+
+        # Foreground path — try the persistent shell first.
+        session, _reused = acquire_persistent_session(cwd: cwd, env: env)
+        persistent = !session.nil?
+
+        # Fallback: one-shot shell (old behaviour) if the persistent slot
+        # is unavailable (e.g. spawn failed previously).
+        session ||= spawn_dedicated_session(cwd: cwd, env: env)
+        return session if session.is_a?(Hash) && session[:error]
+
+        write_user_command(session, safe_command)
+
+        wait_and_package(
+          session,
+          timeout: timeout,
+          persistent: persistent,
+          original_command: command,
+          rewritten_command: safe_command
+        )
+      end
+
+      # ---------------------------------------------------------------------
+      # 2) Continue / poll an existing session
+      # ---------------------------------------------------------------------
+      private def do_continue(session_id, input, timeout:)
+        session = SessionManager.refresh(session_id)
+        return { error: "Session ##{session_id} not found (already finished or killed)." } unless session
+
+        if %w[exited killed].include?(session.status)
+          cleanup_session(session)
+          return { error: "Session ##{session_id} has already #{session.status}." }
+        end
+
+        session.mutex.synchronize { session.writer.write(normalize_input_for_pty(input.to_s)) } unless input.to_s.empty?
+
+        wait_and_package(session, timeout: timeout)
+      end
+
+      # `\n` is a Unix newline, not the "Enter key". Inside cooked-mode PTYs
+      # the kernel's ICRNL setting converts `\r` → `\n` on input, so `\r`
+      # behaves identically to `\n` for ordinary shell/`read`/`input()` use.
+      # BUT raw-mode TUI apps (curses-style installers, menus) read raw bytes
+      # and only recognize `\r` as Enter; `\n` gets inserted as a literal
+      # character into search fields, text inputs, etc.
+      #
+      # `\r` is therefore the only byte that means "Enter" in BOTH modes, so
+      # we transparently translate `\n` → `\r` before writing to the PTY.
+      # AI callers never need to know the difference.
+      private def normalize_input_for_pty(str)
+        str.gsub("\n", "\r")
+      end
+
+      # ---------------------------------------------------------------------
+      # 3) Kill a session
+      # ---------------------------------------------------------------------
+      private def do_kill(session_id)
+        session = SessionManager.get(session_id)
+        return { error: "Session ##{session_id} not found" } unless session
+
+        SessionManager.kill(session.id, signal: "TERM")
+        sleep 0.1
+        Process.kill("KILL", session.pid) rescue nil
+        cleanup_session(session)
+
+        { killed: true, session_id: session_id, message: "Session ##{session_id} killed." }
+      end
+
+      # =====================================================================
+      # Plumbing
+      # =====================================================================
+
+      # Wait for the current command to either (a) finish with a marker,
+      # (b) go idle on a prompt, or (c) hit the timeout. Package accordingly.
+      #
+      # Behaviour matrix:
+      #
+      #   state    | background: false            | background: true
+      #   ---------+------------------------------+-----------------------------
+      #   :matched | exit_code (finished)         | exit_code (crashed fast)
+      #   :eof     | exit_code (child gone)       | exit_code (crashed fast)
+      #   :idle    | session_id, state=waiting    | — (idle disabled)
+      #   :timeout | session_id, state=timeout    | session_id, state=background
+      private def wait_and_package(session, timeout:, idle_ms: DEFAULT_IDLE_MS,
+                                   background: false, persistent: false,
+                                   original_command: nil, rewritten_command: nil)
+        start_offset = session.read_offset
+
+        _before, code, state = read_until_marker(session, timeout: timeout, idle_ms: idle_ms)
+
+        new_offset = log_size(session)
+        raw = read_log_slice(session.log_file, start_offset, new_offset)
+        cleaned = OutputCleaner.clean(raw)
+        cleaned = cleaned.sub(session.marker_regex, "").rstrip if session.marker_regex
+        cleaned = strip_command_echo(cleaned)
+        truncated = false
+        if cleaned.bytesize > MAX_LLM_OUTPUT_CHARS
+          cleaned = cleaned.byteslice(0, MAX_LLM_OUTPUT_CHARS) + "\n...[output truncated]"
+          truncated = true
+        end
+        SessionManager.advance_offset(session.id, new_offset)
+
+        # Note rewrites so the agent notices if Security changed the command.
+        rewrite_note = rewrite_note(original_command, rewritten_command)
+
+        case state
+        when :matched, :eof
+          exit_code = code || session.exit_code
+          if persistent && state == :matched && session_healthy?(session)
+            # Command finished cleanly — return the shell to the pool so
+            # the next call reuses it (no cold-start cost).
+            PersistentSessionPool.instance.release(session)
+          else
+            cleanup_session(session)
+          end
+          {
+            output: cleaned,
+            exit_code: exit_code,
+            bytes_read: new_offset - start_offset,
+            output_truncated: truncated,
+            security_rewrite: rewrite_note
+          }.compact
+        when :idle, :timeout
+          # Command is still running interactively. If this was the persistent
+          # session, we must release it from pool ownership — the caller now
+          # owns it for follow-up input/kill, and the pool will spawn a fresh
+          # one on the next acquire.
+          PersistentSessionPool.instance.discard if persistent
+          {
+            output: cleaned,
+            session_id: session.id,
+            state: background ? "background" : (state == :idle ? "waiting" : "timeout"),
+            bytes_read: new_offset - start_offset,
+            output_truncated: truncated,
+            security_rewrite: rewrite_note,
+            hint: background_hint(background, session.id)
+          }.compact
+        end
+      end
+
+      private def session_healthy?(session)
+        return false unless session
+        return false if %w[exited killed].include?(session.status.to_s)
+        begin
+          Process.kill(0, session.pid)
+          true
+        rescue Errno::ESRCH
+          false
+        rescue StandardError
+          true
+        end
+      end
+
+      # The shell may echo the wrapper line we injected (`{ USER_CMD; }; ...;
+      # printf "__CLACKY_DONE_..."`) before running it. When stty -echo is
+      # honoured (bash/fresh pty) this is a no-op; when it isn't (zsh ZLE
+      # sometimes re-enables echo on reuse) we strip the wrapper echo.
+      #
+      # Note: when the PTY is in cooked mode and echoes the wrapper, the
+      # terminal *interprets* the backslash-n escape pairs inside the
+      # double-quoted printf format, so the wrapper echo spans multiple
+      # real \n lines — not just two. We match lazily up to the closing
+      # `"$__clacky_ec"` quote so we catch the entire echoed wrapper.
+      private def strip_command_echo(text)
+        return text if text.nil? || text.empty?
+        # Match the whole echoed wrapper, however many lines the terminal
+        # expanded its \n escapes into:
+        #   { USER_CMD
+        #   }; __clacky_ec=$?; printf "
+        #   __CLACKY_DONE_<token>_%s__
+        #   " "$__clacky_ec"
+        # Anchored at the start; non-greedy across newlines via /m.
+        text = text.sub(/\A\{.*?"\$__clacky_ec"\s*\n?/m, "")
+        text
+      end
+
+      private def background_hint(background, session_id)
+        if background
+          "Running as background session ##{session_id}. Poll with " \
+            "{session_id: #{session_id}, input: \"\"} or stop with " \
+            "{session_id: #{session_id}, kill: true}."
+        else
+          "Command is still running. If it's waiting for input, reply with " \
+            "{session_id: #{session_id}, input: \"...\"}. To just check " \
+            "progress: {session_id: #{session_id}, input: \"\"}. To stop: " \
+            "{session_id: #{session_id}, kill: true}."
+        end
+      end
+
+      private def rewrite_note(original, rewritten)
+        return nil if original.nil? || rewritten.nil?
+        return nil if original.strip == rewritten.strip
+        {
+          original: original,
+          rewritten: rewritten,
+          message: "Command was rewritten by the safety layer."
+        }
+      end
+
+      private def cleanup_session(session)
+        SessionManager.kill(session.id, signal: "TERM") rescue nil
+        sleep 0.05
+        Process.kill("KILL", session.pid) rescue nil
+        session.writer.close rescue nil
+        session.reader.close rescue nil
+        session.log_io.close rescue nil
+        SessionManager.forget(session.id)
+      end
+
+      private def chdir_args(cwd)
+        cwd && Dir.exist?(cwd) ? { chdir: cwd } : {}
+      end
+
+      # ---------------------------------------------------------------------
+      # Spawn a PTY-backed shell session and install our marker.
+      #
+      # Two flavours:
+      #   * persistent — uses the user's real shell with full rc loading
+      #     (`zsh -l -i` / `bash -l -i`) so shell functions, aliases, PATH
+      #     tweaks etc. are all available. Cold-starts in ~1s which is why
+      #     we aggressively reuse these via PersistentSessionPool.
+      #   * dedicated — minimal shell with no rc (`bash --noprofile --norc
+      #     -i`). Used for background commands (rails s, etc.) that will
+      #     occupy the PTY for a long time, and as a fallback when a
+      #     persistent spawn fails. Starts in ~50ms.
+      # ---------------------------------------------------------------------
+
+      # Try to acquire a persistent session. Returns [session, reused] or
+      # [nil, false] on any failure (caller falls back to dedicated).
+      private def acquire_persistent_session(cwd:, env:)
+        PersistentSessionPool.instance.acquire(runner: self, cwd: cwd, env: env)
+      rescue SpawnFailed
+        [nil, false]
+      rescue StandardError
+        [nil, false]
+      end
+
+      # Public-ish: called by PersistentSessionPool to build a new long-lived
+      # shell. Uses the user's SHELL with login+interactive flags so that all
+      # rc hooks (nvm, rbenv, brew shellenv, mise, conda, etc.) are loaded.
+      def spawn_persistent_session
+        shell, shell_name = user_shell
+        args = persistent_shell_args(shell, shell_name)
+        session = spawn_shell(args: args, shell_name: shell_name,
+                              command: "<persistent>", cwd: nil, env: {})
+        raise SpawnFailed, session[:error] if session.is_a?(Hash)
+        session
+      end
+
+      # Dedicated one-shot shell — no rc, fast startup. Used for background
+      # commands and as a fallback.
+      private def spawn_dedicated_session(cwd:, env:)
+        args = ["/bin/bash", "--noprofile", "--norc", "-i"]
+        spawn_shell(args: args, shell_name: "bash",
+                    command: "<dedicated>", cwd: cwd, env: env || {})
+      end
+
+      # Returns [shell_path, shell_name]. Falls back to /bin/bash if SHELL
+      # isn't set or the binary isn't executable.
+      private def user_shell
+        shell = ENV["SHELL"].to_s
+        shell = "/bin/bash" if shell.empty? || !File.executable?(shell)
+        name = File.basename(shell)
+        # Only zsh / bash have first-class marker support; everything else
+        # falls through to bash behaviour.
+        name = "bash" unless %w[zsh bash].include?(name)
+        [shell, name]
+      end
+
+      private def persistent_shell_args(shell, shell_name)
+        case shell_name
+        when "zsh", "bash"
+          [shell, "-l", "-i"]
+        else
+          ["/bin/bash", "--noprofile", "--norc", "-i"]
+        end
+      end
+
+      # Core spawn: PTY + reader thread + marker install.
+      private def spawn_shell(args:, shell_name:, command:, cwd:, env:)
+        spawn_env = {
+          "TERM" => "xterm-256color",
+          "PS1"  => ""
+        }
+        (env || {}).each { |k, v| spawn_env[k.to_s] = v.to_s }
+
+        log_file = SessionManager.allocate_log_file
+        log_io   = File.open(log_file, "wb")
+
+        reader, writer, pid = PTY.spawn(
+          spawn_env, *args, chdir_args(cwd)
+        )
+        reader.sync = true
+        writer.sync = true
+
+        begin
+          writer.winsize = [40, 120]
+        rescue StandardError
+          # unsupported on some platforms
+        end
+
+        marker_token = SecureRandom.hex(8)
+        reader_thread = start_reader_thread(reader, log_io)
+
+        session = SessionManager.register(
+          pid: pid, command: command, cwd: cwd || Dir.pwd,
+          log_file: log_file, log_io: log_io,
+          reader: reader, writer: writer,
+          reader_thread: reader_thread,
+          mode: "shell", marker_token: marker_token,
+          shell_name: shell_name
+        )
+
+        # Give the shell a moment to print its startup banner (zsh -l -i
+        # loads a lot of stuff), then drain whatever noise it wrote so the
+        # marker install doesn't collide with it.
+        sleep 0.2
+        drain_any(session, timeout: 2.5)
+        install_marker(session)
+        _before, _code, state = read_until_marker(session, timeout: 10, idle_ms: DISABLED_IDLE_MS)
+        unless state == :matched
+          cleanup_session(session)
+          return { error: "Failed to initialize terminal session (marker state=#{state}, shell=#{shell_name})" }
+        end
+        session.read_offset = log_size(session)
+        SessionManager.advance_offset(session.id, session.read_offset)
+
+        SessionManager.mark_running(session.id)
+        session
+      end
+
+      # Background thread: drain PTY → log file.
+      private def start_reader_thread(reader, log_io)
+        Thread.new do
+          loop do
+            break if reader.closed? || log_io.closed?
+            begin
+              ready = IO.select([reader], nil, nil, 0.5)
+              next unless ready
+              chunk = reader.read_nonblock(4096)
+              log_io.write(chunk) rescue nil
+              log_io.flush rescue nil
+            rescue IO::WaitReadable
+              next
+            rescue EOFError, Errno::EIO, IOError
+              break
+            rescue StandardError
+              break
+            end
+          end
+        ensure
+          log_io.close rescue nil
+        end
+      end
+
+      # Install minimal shell setup:
+      #   - disable input echo (stty -echo)
+      #   - empty PS1/PS2 so prompt lines don't add noise
+      #
+      # NOTE: we deliberately do NOT use PROMPT_COMMAND (bash) / precmd (zsh)
+      # to emit the completion marker. Those hooks fight zsh's ZLE, iTerm2
+      # shell integration, etc. Instead, every user command is wrapped with
+      # an inline printf marker — see `write_user_command`. Same bytes work
+      # in bash, zsh, and anything POSIX-ish.
+      private def install_marker(session)
+        setup_line = %Q{stty -echo 2>/dev/null; PS1=""; PS2=""\n}
+        session.mutex.synchronize { session.writer.write(setup_line) }
+
+        # Emit the first marker by running a no-op through the same wrapper
+        # we use for real commands. spawn_shell's read_until_marker will
+        # match this and consider the shell ready.
+        write_user_command(session, ":")
+      end
+
+      # Wrap a user command so we can reliably detect its completion + exit
+      # code regardless of shell flavour (bash/zsh/sh).
+      #
+      # The command runs in a group (`{ ...; }`) so trailing pipelines still
+      # complete before the marker fires. `$?` inside the group captures the
+      # user command's exit code; we stash it in `__clacky_ec` immediately so
+      # intervening shell activity doesn't clobber it before printf runs.
+      #
+      # Leading `\n` in the printf format ensures the marker starts on its
+      # own line even when the user command ended without a trailing newline.
+      private def write_user_command(session, command)
+        token = session.marker_token
+        line = %Q|{ #{command}\n}; __clacky_ec=$?; printf "\n__CLACKY_DONE_#{token}_%s__\n" "$__clacky_ec"\n|
+        session.mutex.synchronize { session.writer.write(line) }
+      end
+
+      # ---------------------------------------------------------------------
+      # In-session helpers used by PersistentSessionPool to reset state
+      # between commands without having to respawn the shell.
+      # ---------------------------------------------------------------------
+
+      # Issue an in-shell command and wait for its marker. Returns true on
+      # success (marker hit), false otherwise. Swallows output.
+      private def run_inline(session, line, timeout: 5)
+        write_user_command(session, line)
+        _before, _code, state = read_until_marker(session, timeout: timeout, idle_ms: DISABLED_IDLE_MS)
+        new_offset = log_size(session)
+        SessionManager.advance_offset(session.id, new_offset)
+        state == :matched
+      end
+
+      # Called by the pool when rc files (e.g. ~/.zshrc) have changed since
+      # this session was spawned. Sources them all; ignores per-file errors.
+      def source_rc_in_session(session, rc_files)
+        return if rc_files.empty?
+        esc = rc_files.map { |f| "\"#{f.gsub('"', '\"')}\"" }.join(" ")
+        run_inline(
+          session,
+          rc_files.map { |f| "source \"#{f.gsub('"', '\"')}\" 2>/dev/null" }.join("; "),
+          timeout: 10
+        )
+      end
+
+      # Called by the pool to reset env between calls. First unsets any keys
+      # we exported last time, then exports the new ones.
+      def reset_env_in_session(session, unset_keys:, set_env:)
+        parts = []
+        unset_keys.each { |k| parts << "unset #{shell_escape_var(k)}" }
+        set_env.each { |k, v| parts << "export #{shell_escape_var(k)}=#{shell_escape_value(v)}" }
+        return if parts.empty?
+        run_inline(session, parts.join("; "))
+      end
+
+      # Called by the pool to move the live shell to `cwd`.
+      def cd_in_session(session, cwd)
+        run_inline(session, "cd #{shell_escape_value(cwd)}")
+      end
+
+      private def shell_escape_var(name)
+        # Env var names are alphanumeric + underscore by POSIX; reject anything
+        # else defensively so we never build a malformed line.
+        name.to_s.gsub(/[^A-Za-z0-9_]/, "")
+      end
+
+      private def shell_escape_value(val)
+        # Wrap in single quotes, escaping any embedded single quotes.
+        "'" + val.to_s.gsub("'", "'\\''") + "'"
+      end
+
+      # ---------------------------------------------------------------------
+      # PTY/log read helpers
+      # ---------------------------------------------------------------------
+      private def drain_any(session, timeout: 1.0)
+        deadline = Time.now + timeout
+        loop do
+          remaining = deadline - Time.now
+          break if remaining <= 0
+          ready = IO.select([session.reader], nil, nil, [remaining, 0.1].min)
+          break unless ready
+          begin
+            session.reader.read_nonblock(4096)
+          rescue IO::WaitReadable
+            next
+          rescue EOFError, Errno::EIO
+            break
+          end
+        end
+      end
+
+      # Poll the log file until a marker matches, idle-return fires, or timeout.
+      # Returns [raw_before_marker, exit_code_or_nil, state].
+      # state ∈ :matched, :idle, :timeout, :eof
+      private def read_until_marker(session, timeout:, idle_ms: DEFAULT_IDLE_MS)
+        return ["", nil, :eof] unless session.marker_regex
+
+        deadline    = Time.now + timeout
+        idle_sec    = idle_ms / 1000.0
+        start_size  = session.read_offset
+        last_size   = start_size
+        last_change = Time.now
+
+        loop do
+          current_size = log_size(session)
+          if current_size > last_size
+            slice = read_log_slice(session.log_file, session.read_offset, current_size)
+            if (m = slice.match(session.marker_regex))
+              return [slice[0...m.begin(0)], m[1].to_i, :matched]
+            end
+            last_size = current_size
+            last_change = Time.now
+          end
+
+          SessionManager.refresh(session.id)
+          if session.status == "exited" || session.status == "killed"
+            slice = read_log_slice(session.log_file, session.read_offset, log_size(session))
+            if (m = slice.match(session.marker_regex))
+              return [slice[0...m.begin(0)], m[1].to_i, :matched]
+            end
+            return [slice, nil, :eof]
+          end
+
+          if last_size > start_size && (Time.now - last_change) >= idle_sec
+            return ["", nil, :idle]
+          end
+
+          return ["", nil, :timeout] if Time.now >= deadline
+          sleep 0.05
+        end
+      end
+
+      private def log_size(session)
+        session.log_io.size rescue File.size(session.log_file) rescue 0
+      end
+
+      private def read_log_slice(path, from, to)
+        return "" if to <= from
+        File.open(path, "rb") do |f|
+          f.seek(from)
+          f.read(to - from).to_s
+        end
+      rescue Errno::ENOENT
+        ""
+      end
+
+      # ---------------------------------------------------------------------
+      # Display helpers
+      # ---------------------------------------------------------------------
+      def format_call(args)
+        cmd  = args[:command] || args["command"]
+        sid  = args[:session_id] || args["session_id"]
+        inp  = args[:input] || args["input"]
+        kill = args[:kill] || args["kill"]
+        bg   = args[:background] || args["background"]
+
+        if kill && sid
+          "terminal(kill ##{sid})"
+        elsif sid
+          if inp.to_s.empty?
+            "terminal(##{sid} poll)"
+          else
+            preview = inp.to_s
+            preview = preview.length > 30 ? "#{preview[0, 30]}..." : preview
+            "terminal(##{sid} << #{preview.inspect})"
+          end
+        elsif cmd
+          bg ? "terminal(#{cmd}, background)" : "terminal(#{cmd})"
+        else
+          "terminal(?)"
+        end
+      end
+
+      def format_result(result)
+        return "[Blocked] #{result[:error]}" if result.is_a?(Hash) && result[:security_blocked]
+        return "error: #{result[:error]}"   if result.is_a?(Hash) && result[:error]
+        return "killed ##{result[:session_id]}" if result.is_a?(Hash) && result[:killed]
+
+        if result.is_a?(Hash)
+          prefix = result[:security_rewrite] ? "[Safe] " : ""
+          if result[:session_id]
+            state = result[:state] || "waiting"
+            "#{prefix}#{state} (##{result[:session_id]}) — #{result[:bytes_read]}B"
+          elsif result.key?(:exit_code)
+            "#{prefix}exit=#{result[:exit_code]} — #{result[:bytes_read]}B"
+          else
+            "#{prefix}done"
+          end
+        else
+          "done"
+        end
+      end
+    end
+  end
+end

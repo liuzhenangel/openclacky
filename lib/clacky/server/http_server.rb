@@ -7,7 +7,6 @@ require "thread"
 require "fileutils"
 require "tmpdir"
 require "uri"
-require "open3"
 require "securerandom"
 require "timeout"
 require_relative "session_registry"
@@ -969,14 +968,12 @@ module Clacky
       # Returns true when the configured gem source is the official RubyGems.org.
       # Raises on error — caller's rescue will handle it.
       private def official_gem_source?
-        shell  = Clacky::Tools::Shell.new
-        result = shell.execute(command: "gem sources -l", soft_timeout: 10, hard_timeout: 15)
-        raise "gem sources -l failed (exit #{result[:exit_code]}): #{result[:stderr]}" unless result[:exit_code] == 0
+        output, exit_code = run_shell("gem sources -l")
+        raise "gem sources -l failed (exit #{exit_code}): #{output}" unless exit_code&.zero?
 
-        sources = result[:stdout].to_s
-        Clacky::Logger.info("[Upgrade] gem sources: #{sources.strip}")
-        sources.include?("https://rubygems.org") &&
-          !sources.match?(%r{mirrors\.|aliyun|tuna|ustc|ruby-china})
+        Clacky::Logger.info("[Upgrade] gem sources: #{output.strip}")
+        output.include?("https://rubygems.org") &&
+          !output.match?(%r{mirrors\.|aliyun|tuna|ustc|ruby-china})
       end
 
       # Upgrade via `gem update openclacky --no-document` (official RubyGems source).
@@ -985,15 +982,12 @@ module Clacky
         Clacky::Logger.info("[Upgrade] Official source — running: #{cmd}")
         broadcast_all(type: "upgrade_log", line: "Starting upgrade: #{cmd}\n")
 
-        shell  = Clacky::Tools::Shell.new
-        result = shell.execute(command: cmd, soft_timeout: 30, hard_timeout: 300)
+        output, exit_code = run_shell(cmd, timeout: 600)
 
-        Clacky::Logger.info("[Upgrade] exit_code=#{result[:exit_code]}")
-        Clacky::Logger.info("[Upgrade] stdout=#{result[:stdout].to_s.slice(0, 500)}")
-        Clacky::Logger.info("[Upgrade] stderr=#{result[:stderr].to_s.slice(0, 500)}")
+        Clacky::Logger.info("[Upgrade] exit_code=#{exit_code}")
+        Clacky::Logger.info("[Upgrade] output=#{output.slice(0, 1000)}")
 
-        output  = [result[:stdout], result[:stderr]].join
-        success = result[:exit_code] == 0
+        success = exit_code&.zero? || false
 
         broadcast_all(type: "upgrade_log", line: output)
         finish_upgrade(success, fallback_hint: "gem update openclacky")
@@ -1033,11 +1027,10 @@ module Clacky
         broadcast_all(type: "upgrade_log", line: "Downloading openclacky-#{latest_version}.gem from OSS...\n")
         Clacky::Logger.info("[Upgrade] Downloading #{gem_url}")
 
-        shell = Clacky::Tools::Shell.new
-        dl    = shell.execute(command: "curl -fsSL '#{gem_url}' -o '#{gem_file}'",
-                              soft_timeout: 60, hard_timeout: 120)
-        unless dl[:exit_code] == 0
-          broadcast_all(type: "upgrade_log", line: "✗ Download failed: #{dl[:stderr]}\n")
+        shell_cmd = "curl -fsSL '#{gem_url}' -o '#{gem_file}'"
+        dl_out, dl_exit = run_shell(shell_cmd, timeout: 300)
+        unless dl_exit&.zero?
+          broadcast_all(type: "upgrade_log", line: "✗ Download failed: #{dl_out}\n")
           broadcast_all(type: "upgrade_complete", success: false)
           return
         end
@@ -1047,9 +1040,8 @@ module Clacky
         broadcast_all(type: "upgrade_log", line: "Installing...\n")
         Clacky::Logger.info("[Upgrade] Running: #{cmd}")
 
-        result  = shell.execute(command: cmd, soft_timeout: 30, hard_timeout: 300)
-        output  = [result[:stdout], result[:stderr]].join
-        success = result[:exit_code] == 0
+        output, exit_code = run_shell(cmd, timeout: 600)
+        success = exit_code&.zero? || false
 
         broadcast_all(type: "upgrade_log", line: output)
         finish_upgrade(success, fallback_hint: "gem install #{gem_url}")
@@ -1128,7 +1120,7 @@ module Clacky
       end
 
       # Fetch the latest gem version using `gem list -r`, with a 1-hour in-memory cache.
-      # Uses Clacky::Tools::Shell (login shell) so rbenv/mise shims and gem mirrors work correctly.
+      # Uses Terminal (PTY + login shell) so rbenv/mise shims and gem mirrors work correctly.
       private def fetch_latest_version_cached
         @version_mutex.synchronize do
           now = Time.now
@@ -1150,6 +1142,7 @@ module Clacky
       # Query the latest openclacky version.
       # Strategy: try RubyGems official REST API first (most accurate, not affected by mirror lag),
       # then fall back to `gem list -r` (respects user's configured gem source).
+      # Uses Terminal (PTY + login shell) so rbenv/mise shims and gem mirrors work correctly.
       private def fetch_latest_version_from_gem
         fetch_latest_version_from_rubygems_api || fetch_latest_version_from_gem_command
       end
@@ -1179,11 +1172,9 @@ module Clacky
       # Respects the user's configured gem source (rbenv/mise mirrors, etc.).
       # Output format: "openclacky (0.9.0)"
       private def fetch_latest_version_from_gem_command
-        shell  = Clacky::Tools::Shell.new
-        result = shell.execute(command: "gem list -r openclacky", soft_timeout: 15, hard_timeout: 30)
-        return nil unless result[:exit_code] == 0
+        out, exit_code = run_shell("gem list -r openclacky", timeout: 30)
+        return nil unless exit_code&.zero?
 
-        out   = result[:stdout].to_s
         match = out.match(/^openclacky\s+\(([^)]+)\)/)
         match ? match[1].strip : nil
       rescue StandardError
@@ -1195,6 +1186,23 @@ module Clacky
         Gem::Version.new(a) < Gem::Version.new(b)
       rescue ArgumentError
         false
+      end
+
+      # Run a shell command via the unified Terminal tool and return
+      # [output, exit_code] — drop-in replacement for Open3.capture2e.
+      #
+      # Uses Terminal#execute so the command inherits the user's real
+      # login shell (rbenv/mise shims, configured gem mirrors, etc.).
+      # On timeout / still-running, returns [output_so_far, nil].
+      #
+      # The command is routed through the Security layer like any other
+      # Terminal call; server-side commands (`gem ...`, `curl -fsSL ... -o ...`)
+      # pass through unchanged.
+      private def run_shell(command, timeout: 120)
+        result = Clacky::Tools::Terminal.new.execute(command: command, timeout: timeout)
+        output    = result[:output].to_s
+        exit_code = result[:exit_code] # nil when the session is still running
+        [output, exit_code]
       end
 
       # ── Channel API ───────────────────────────────────────────────────────────

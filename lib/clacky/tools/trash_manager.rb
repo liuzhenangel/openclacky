@@ -237,7 +237,7 @@ module Clacky
         help_text = <<~HELP
           🗑️ Trash Manager Help
 
-          The SafeShell tool automatically moves deleted files to a trash directory
+          The `terminal` tool automatically moves deleted files to a trash directory
           instead of permanently deleting them. This tool helps you manage those files.
 
           Available actions:
@@ -260,7 +260,7 @@ module Clacky
           - Use 'list' to see what files are in trash
           - Use 'restore' to get back accidentally deleted files
           - Use 'empty' periodically to free up disk space
-          - All deletions by SafeShell are logged in ~/.clacky/safety_logs/
+          - All deletions by `terminal` are logged in ~/.clacky/safety_logs/
         HELP
 
         {

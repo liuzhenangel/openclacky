@@ -100,7 +100,7 @@ Do you want to reuse this binding? (y/n)
 
 #### 3.2 Run the cloud project init script
 Use the `cloud_project_init.sh` script from Supporting Files.
-Run it with safe_shell from the project directory (no arguments needed — it auto-reads `~/.clacky/clacky_cloud.yml`):
+Run it with `terminal` from the project directory (no arguments needed — it auto-reads `~/.clacky/clacky_cloud.yml`):
 
 ```bash
 bash <absolute_path_to_cloud_project_init.sh>
