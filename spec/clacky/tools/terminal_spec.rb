@@ -14,33 +14,57 @@ require "shellwords"
 RSpec.describe Clacky::Tools::Terminal do
   let(:tool) { described_class.new }
 
-  # Reset the session registry between specs to avoid cross-test leakage.
+  # Keep the spec suite fast: we don't want every "blocked on a prompt"
+  # scenario to burn the production 3s idle threshold. 200ms is plenty of
+  # time for a child to flush "Name: " before we check, and slashes total
+  # suite runtime by ~6x compared to the production default.
+  #
+  # We also shrink the background-startup collection window: 2s per
+  # background launch × 4 background specs = 8s of otherwise-idle waiting.
+  # 400ms is still enough for ruby/bash to flush their first line.
+  #
+  # And we force the persistent shell to be `bash --noprofile --norc -i`
+  # rather than the user's interactive login shell (`zsh -l -i`, etc).
+  # Real login shells take ~1.2s to initialize on macOS because they
+  # source `.zshenv` / `.zprofile` / `.zshrc`, and the pool is discarded
+  # every time a command goes idle/times out — which happens in ~20 of
+  # these specs. 20 × 1.2s = 24s of pure shell cold-start cost per suite
+  # run. A bare bash is ~100ms, dropping that to ~2s.
   before do
+    stub_const("Clacky::Tools::Terminal::DEFAULT_IDLE_MS", 200)
+    stub_const("Clacky::Tools::Terminal::BACKGROUND_COLLECT_SECONDS", 0.4)
+    allow_any_instance_of(Clacky::Tools::Terminal).to receive(:persistent_shell_args)
+      .and_return(["/bin/bash", "--noprofile", "--norc", "-i"])
+    allow_any_instance_of(Clacky::Tools::Terminal).to receive(:user_shell)
+      .and_return(["/bin/bash", "bash"])
+  end
+
+  # The PersistentSessionPool is expensive to spawn (~1.2s cold-start for
+  # `zsh -l -i` on macOS). Resetting it between every example would cost
+  # ~30s per suite run. The pool is specifically designed to recover from
+  # dirty state (it drops unhealthy sessions on the next acquire and cds
+  # back to the requested cwd), so we only clear it ONCE at suite start.
+  #
+  # We still kill any *dedicated* sessions left behind between examples —
+  # those are per-session (background runs, timed-out commands, blocked
+  # prompts), so they won't bleed across tests, but we don't want them
+  # lingering as zombie PIDs.
+  before(:suite) do
     begin
       Clacky::Tools::Terminal::PersistentSessionPool.reset!
-    rescue StandardError
-    end
-    begin
-      Clacky::Tools::Terminal::SessionManager.list.each do |s|
-        tool.execute(session_id: s.id, kill: true)
-      end
     rescue StandardError
     end
     Clacky::Tools::Terminal::SessionManager.reset!
   end
 
   after do
-    begin
-      Clacky::Tools::Terminal::PersistentSessionPool.reset!
-    rescue StandardError
-    end
+    t = Clacky::Tools::Terminal.new
     begin
       Clacky::Tools::Terminal::SessionManager.list.each do |s|
-        tool.execute(session_id: s.id, kill: true)
+        t.execute(session_id: s.id, kill: true)
       end
     rescue StandardError
     end
-    Clacky::Tools::Terminal::SessionManager.reset!
   end
 
   # ---------------------------------------------------------------------------
@@ -199,8 +223,9 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "returns early (well before timeout) when output goes idle at a prompt" do
       # The command produces output ("Name: ") then blocks on stdin. Without
-      # idle detection, we would wait the full timeout. With idle detection
-      # (default 500ms), we should return in ~1 second.
+      # idle detection, we would wait the full timeout. With our test-suite
+      # idle override (200ms, see top-level before hook), we should return
+      # in well under a second.
       t0 = Time.now
       result = tool.execute(
         command: %q{bash -c 'read -p "Name: " name && echo "hi $name"'},
@@ -438,32 +463,67 @@ RSpec.describe Clacky::Tools::Terminal do
       expect(tool.format_call(command: "ls -la")).to eq("terminal(ls -la)")
     end
 
-    it "formats a continue invocation" do
+    it "formats a background invocation" do
+      expect(tool.format_call(command: "rails s", background: true)).to eq("terminal(rails s, background)")
+    end
+
+    it "formats a continue invocation (input send)" do
       s = tool.format_call(session_id: 3, input: "mypass\n")
-      expect(s).to include("#3")
-      expect(s).to include("mypass")
+      expect(s).to eq("terminal(send \"mypass\")")
+    end
+
+    it "formats a check-output (empty input poll) invocation" do
+      expect(tool.format_call(session_id: 3, input: "")).to eq("terminal(check output)")
     end
 
     it "formats a kill invocation" do
-      expect(tool.format_call(session_id: 3, kill: true)).to eq("terminal(kill #3)")
+      expect(tool.format_call(session_id: 3, kill: true)).to eq("terminal(stop)")
     end
   end
 
   describe "#format_result" do
     it "renders a finished command" do
-      expect(tool.format_result(exit_code: 0, bytes_read: 12)).to match(/exit=0/)
+      expect(tool.format_result(exit_code: 0, bytes_read: 12)).to eq("✓ exit=0")
+    end
+
+    it "renders a failed command with ✗ marker" do
+      expect(tool.format_result(exit_code: 1, bytes_read: 12)).to eq("✗ exit=1")
     end
 
     it "renders a waiting session" do
-      expect(tool.format_result(session_id: 3, bytes_read: 5)).to include("waiting")
+      expect(tool.format_result(session_id: 3, bytes_read: 5)).to eq("… waiting")
     end
 
     it "renders a kill result" do
-      expect(tool.format_result(killed: true, session_id: 3)).to include("killed")
+      expect(tool.format_result(killed: true, session_id: 3)).to eq("stopped")
     end
 
     it "renders an error" do
       expect(tool.format_result(error: "boom")).to include("error")
+    end
+
+    it "puts output lines first and the status as a trailing footer" do
+      formatted = tool.format_result(
+        session_id: 7, bytes_read: 30,
+        output: "line1\nline2\nline3"
+      )
+      expect(formatted).to eq("line1\nline2\nline3\n… waiting")
+    end
+
+    it "keeps only the last DISPLAY_TAIL_LINES lines and drops blanks, then status" do
+      output = ((1..20).map { |i| "row#{i}" }).join("\n")
+      formatted = tool.format_result(session_id: 1, bytes_read: 100, output: output)
+      lines = formatted.split("\n")
+      # last line is the status footer
+      expect(lines.last).to eq("… waiting")
+      tail_lines = lines[0..-2]
+      expect(tail_lines.size).to eq(Clacky::Tools::Terminal::DISPLAY_TAIL_LINES)
+      expect(tail_lines.last).to eq("row20")
+    end
+
+    it "shows a single status line when output is empty" do
+      formatted = tool.format_result(exit_code: 0, bytes_read: 0, output: "")
+      expect(formatted).to eq("✓ exit=0")
     end
   end
 

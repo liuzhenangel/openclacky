@@ -115,7 +115,7 @@ module Clacky
           },
           timeout: {
             type: "integer",
-            description: "Max seconds to wait for a foreground command to finish or block. Default 15. Ignored for background (always ~2s)."
+            description: "Max seconds to wait for a foreground command to finish or block. Default 60. Ignored for background (always ~2s)."
           },
           kill: {
             type: "boolean",
@@ -125,10 +125,19 @@ module Clacky
       }
 
       MAX_LLM_OUTPUT_CHARS = 8_000
-      DEFAULT_TIMEOUT = 15
+      # Max seconds we keep a single tool call blocked inside the shell.
+      # Raised from 15s → 60s so long-running installs/builds (bundle install,
+      # gem install, npm install, docker build, rails new, ...) produce far
+      # fewer LLM round-trips: each poll replays the full context, so every
+      # avoided poll saves ~all the tokens of one turn.
+      DEFAULT_TIMEOUT = 60
       # How long output must be quiet before we assume the foreground command
-      # is waiting for input. 500ms matches the prior raw-mode tool.
-      DEFAULT_IDLE_MS = 500
+      # is waiting for user input and return control to the LLM.
+      # Raised from 500ms → 3000ms: real shell prompts stay quiet forever
+      # (so 3s is still instant for them), but long builds have frequent
+      # sub-second quiet windows between phases — a small idle threshold
+      # shredded those runs into 20+ polls for no real benefit.
+      DEFAULT_IDLE_MS = 3_000
       # Background commands collect this many seconds of startup output so
       # the agent can see crashes / readiness before getting the session_id.
       BACKGROUND_COLLECT_SECONDS = 2
@@ -139,9 +148,10 @@ module Clacky
       # Public entrypoint — dispatches on parameter shape
       # ---------------------------------------------------------------------
       def execute(command: nil, session_id: nil, input: nil, background: false,
-                  cwd: nil, env: nil, timeout: nil, kill: nil,
+                  cwd: nil, env: nil, timeout: nil, kill: nil, idle_ms: nil,
                   working_dir: nil, **_ignored)
         timeout = (timeout || DEFAULT_TIMEOUT).to_i
+        idle_ms = (idle_ms || DEFAULT_IDLE_MS).to_i
         cwd ||= working_dir
 
         # Kill
@@ -153,13 +163,13 @@ module Clacky
         # Continue / poll a running session
         if session_id
           return { error: "input is required when session_id is given" } if input.nil?
-          return do_continue(session_id.to_i, input.to_s, timeout: timeout)
+          return do_continue(session_id.to_i, input.to_s, timeout: timeout, idle_ms: idle_ms)
         end
 
         # Start a new command
         if command && !command.to_s.strip.empty?
           return do_start(command.to_s, cwd: cwd, env: env, timeout: timeout,
-                          background: background ? true : false)
+                          idle_ms: idle_ms, background: background ? true : false)
         end
 
         { error: "terminal: must provide either `command`, or `session_id`+`input`, or `session_id`+`kill: true`." }
@@ -178,7 +188,7 @@ module Clacky
       # ---------------------------------------------------------------------
       # 1) Start a new command
       # ---------------------------------------------------------------------
-      private def do_start(command, cwd:, env:, timeout:, background:)
+      private def do_start(command, cwd:, env:, timeout:, background:, idle_ms: DEFAULT_IDLE_MS)
         if cwd && !Dir.exist?(cwd.to_s)
           return { error: "cwd does not exist: #{cwd}" }
         end
@@ -223,6 +233,7 @@ module Clacky
         wait_and_package(
           session,
           timeout: timeout,
+          idle_ms: idle_ms,
           persistent: persistent,
           original_command: command,
           rewritten_command: safe_command
@@ -232,7 +243,7 @@ module Clacky
       # ---------------------------------------------------------------------
       # 2) Continue / poll an existing session
       # ---------------------------------------------------------------------
-      private def do_continue(session_id, input, timeout:)
+      private def do_continue(session_id, input, timeout:, idle_ms: DEFAULT_IDLE_MS)
         session = SessionManager.refresh(session_id)
         return { error: "Session ##{session_id} not found (already finished or killed)." } unless session
 
@@ -243,7 +254,7 @@ module Clacky
 
         session.mutex.synchronize { session.writer.write(normalize_input_for_pty(input.to_s)) } unless input.to_s.empty?
 
-        wait_and_package(session, timeout: timeout)
+        wait_and_package(session, timeout: timeout, idle_ms: idle_ms)
       end
 
       # `\n` is a Unix newline, not the "Enter key". Inside cooked-mode PTYs
@@ -736,14 +747,14 @@ module Clacky
         bg   = args[:background] || args["background"]
 
         if kill && sid
-          "terminal(kill ##{sid})"
+          "terminal(stop)"
         elsif sid
           if inp.to_s.empty?
-            "terminal(##{sid} poll)"
+            "terminal(check output)"
           else
-            preview = inp.to_s
+            preview = inp.to_s.strip
             preview = preview.length > 30 ? "#{preview[0, 30]}..." : preview
-            "terminal(##{sid} << #{preview.inspect})"
+            "terminal(send #{preview.inspect})"
           end
         elsif cmd
           bg ? "terminal(#{cmd}, background)" : "terminal(#{cmd})"
@@ -752,24 +763,48 @@ module Clacky
         end
       end
 
+      # Number of trailing lines of output to include in the human-readable
+      # display string (the result text that shows up in CLI / WebUI bubbles
+      # under each tool call). Keep small so multi-poll loops stay readable.
+      DISPLAY_TAIL_LINES = 6
+
       def format_result(result)
         return "[Blocked] #{result[:error]}" if result.is_a?(Hash) && result[:security_blocked]
         return "error: #{result[:error]}"   if result.is_a?(Hash) && result[:error]
-        return "killed ##{result[:session_id]}" if result.is_a?(Hash) && result[:killed]
+        return "stopped" if result.is_a?(Hash) && result[:killed]
 
-        if result.is_a?(Hash)
-          prefix = result[:security_rewrite] ? "[Safe] " : ""
+        return "done" unless result.is_a?(Hash)
+
+        prefix = result[:security_rewrite] ? "[Safe] " : ""
+        tail   = display_tail(result[:output])
+
+        status =
           if result[:session_id]
+            # still running / waiting for input
             state = result[:state] || "waiting"
-            "#{prefix}#{state} (##{result[:session_id]}) — #{result[:bytes_read]}B"
+            "… #{state}"
           elsif result.key?(:exit_code)
-            "#{prefix}exit=#{result[:exit_code]} — #{result[:bytes_read]}B"
+            ec = result[:exit_code]
+            ec.to_i.zero? ? "✓ exit=0" : "✗ exit=#{ec}"
           else
-            "#{prefix}done"
+            "done"
           end
-        else
-          "done"
-        end
+
+        status = "#{prefix}#{status}" unless prefix.empty?
+        tail.empty? ? status : "#{tail}\n#{status}"
+      end
+
+      # Extract the last DISPLAY_TAIL_LINES non-empty lines of output so the
+      # user can see what actually happened in this poll, not just a "128B"
+      # byte-count. Output is already cleaned by OutputCleaner, so we only
+      # need to trim and pick the tail.
+      private def display_tail(output)
+        return "" if output.nil?
+        text = output.to_s
+        return "" if text.strip.empty?
+        lines = text.split(/\r?\n/).reject { |l| l.strip.empty? }
+        return "" if lines.empty?
+        lines.last(DISPLAY_TAIL_LINES).join("\n")
       end
     end
   end
