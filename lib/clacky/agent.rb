@@ -194,8 +194,8 @@ module Clacky
       # immediate feedback after sending a message. Without this the UI stays
       # silent during synchronous setup work (system prompt assembly, file
       # parsing, history compression checks) before the first LLM call. The
-      # subsequent call_llm will re-emit show_progress, which is an idempotent
-      # update on the same progress UI element.
+      # subsequent `think` call will re-emit show_progress, which is an
+      # idempotent update on the same progress UI element.
       @ui&.show_progress
 
       # Start new task for Time Machine
@@ -487,6 +487,11 @@ module Clacky
         # Always clean up memory update messages, even if interrupted or error occurred
         cleanup_memory_messages
 
+        # Safety net: ensure any lingering progress spinner is stopped.
+        # Normal paths close their own spinners; this guards against exceptions
+        # raised between a progress slot's active/done pair.
+        @ui&.show_progress(phase: "done")
+
         # Shred any decrypted-script tmpdirs created during this run for encrypted brand skills.
         # This covers the inline-injection path; the subagent path shreds immediately after
         # subagent.run returns (see execute_skill_with_subagent).
@@ -501,6 +506,12 @@ module Clacky
         raise AgentError, "API key is not configured"
       end
 
+      # Ensure a thinking progress indicator is live for the duration of this
+      # LLM turn. This is idempotent — if `run` already started one at task
+      # entry (or a previous iteration left one running), the UI recognizes
+      # the bare reentry and preserves the existing spinner.
+      @ui&.show_progress
+
       # Check if compression is needed
       compression_context = compress_messages_if_needed(force: false)
 
@@ -509,6 +520,14 @@ module Clacky
         # Show compression start notification
         @ui&.show_info(
           "Message history compression starting (~#{compression_context[:original_token_count]} tokens, #{compression_context[:original_message_count]} messages) - Level #{compression_context[:compression_level]}"
+        )
+        # Take over the progress slot with a compression-specific message.
+        # handle_compression_response will close it with the summary line on
+        # success; on failure the outer ensure below finalizes it.
+        @ui&.show_progress(
+          "Compressing message history...",
+          progress_type: "idle_compress",
+          phase: "active"
         )
         compression_message = compression_context[:compression_message]
         @history.append(compression_message)
@@ -528,13 +547,24 @@ module Clacky
             # (with the user's new message as the last entry), producing consecutive user messages
             # that confuse the LLM into echoing compression instructions.
             @compression_level -= 1
+            # Close the compression progress slot so the spinner does not linger.
+            @ui&.show_progress(phase: "done")
           end
         end
         return nil
       end
 
-      # Normal LLM call
-      response = call_llm
+      # Normal LLM call. call_llm no longer manages the progress lifecycle;
+      # we keep the spinner live across the call and finalize it here so the
+      # UI transitions cleanly to the assistant message that follows.
+      response = nil
+      begin
+        response = call_llm
+      rescue
+        # Ensure the spinner is stopped on any error path before it bubbles up.
+        @ui&.show_progress(phase: "done")
+        raise
+      end
 
       # Handle truncated responses (when max_tokens limit is reached)
       if response[:finish_reason] == "length"
@@ -543,6 +573,7 @@ module Clacky
 
         if @task_truncation_count >= 3
           # Too many truncations - task is too complex
+          @ui&.show_progress(phase: "done")
           @ui&.show_error("Response truncated multiple times. Task is too complex.")
 
           # Create a response that tells the user to break down the task
@@ -588,6 +619,9 @@ module Clacky
           truncated: true
         })
 
+        # Close the current spinner so the warning appears cleanly;
+        # the recursive think() call below will reopen a new one.
+        @ui&.show_progress(phase: "done")
         @ui&.show_warning("Response truncated (#{@task_truncation_count}/3). Retrying with smaller steps...")
 
         # Recursively retry
@@ -609,6 +643,11 @@ module Clacky
       # (e.g. Kimi/Moonshot extended thinking — omitting it causes HTTP 400)
       msg[:reasoning_content] = response[:reasoning_content] if response[:reasoning_content]
       @history.append(msg)
+
+      # Close the thinking spinner before returning. The caller (run loop)
+      # is about to render the assistant message and/or tool invocations,
+      # which should appear after the spinner disappears.
+      @ui&.show_progress(phase: "done")
 
       response
     end

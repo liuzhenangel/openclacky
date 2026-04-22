@@ -35,11 +35,19 @@ module Clacky
       #                user experiences no extra delay.
       #
       # @return [Hash] API response with :content, :tool_calls, :usage, etc.
+      # NOTE on progress lifecycle:
+      #   call_llm intentionally does NOT start or stop the progress indicator.
+      #   Ownership lives with the caller (Agent#think for normal/compression
+      #   paths, Agent#trigger_idle_compression for idle compression). This
+      #   avoids nested active/done pairs clobbering each other — a bug that
+      #   silently dropped the idle-compression summary line.
+      #
+      #   Inside call_llm we only *update in place* during retries, so the
+      #   already-live progress slot shows meaningful transient status
+      #   ("Network failed… attempt 2/10", etc.).
       private def call_llm
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
-
-        @ui&.show_progress
 
         tools_to_send = @tool_registry.all_definitions
 
@@ -68,7 +76,6 @@ module Clacky
           handle_probe_success if @config.probing?
 
         rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Faraday::SSLError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
-          @ui&.show_progress(phase: "done")
           retries += 1
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.
@@ -90,13 +97,12 @@ module Clacky
             sleep retry_delay
             retry
           else
-            @ui&.show_progress(phase: "done")
-            # Don't show_error here — let the outer rescue block handle it to avoid duplicates
+            # Don't show_error here — let the outer rescue block handle it to avoid duplicates.
+            # Progress cleanup is the caller's responsibility (via its own ensure block).
             raise AgentError, "[LLM] Network connection failed after #{max_retries} retries: #{e.message}"
           end
 
         rescue RetryableError => e
-          @ui&.show_progress(phase: "done")
           retries += 1
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.
@@ -127,12 +133,10 @@ module Clacky
           sleep retry_delay
           retry
         else
-          @ui&.show_progress(phase: "done")
-          # Don't show_error here — let the outer rescue block handle it to avoid duplicates
+          # Don't show_error here — let the outer rescue block handle it to avoid duplicates.
+          # Progress cleanup is the caller's responsibility (via its own ensure block).
           raise AgentError, "[LLM] Service unavailable after #{current_max} retries"
         end
-        ensure
-          @ui&.show_progress(phase: "done")
         end
 
         # Track cost and collect token usage data.
