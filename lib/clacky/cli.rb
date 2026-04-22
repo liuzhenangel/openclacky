@@ -822,6 +822,30 @@ module Clacky
     option :brand_test, type: :boolean, default: false,
            desc: "Enable brand test mode: mock license activation without calling remote API"
     def server
+      # ── Security gate ──────────────────────────────────────────────────────
+      # Binding to 0.0.0.0 exposes the server to the public network.
+      # Refuse to start unless CLACKY_ACCESS_KEY env var is set.
+      if options[:host] == "0.0.0.0" && ENV.fetch("CLACKY_ACCESS_KEY", "").strip.empty?
+        puts <<~MSG
+          ╔══════════════════════════════════════════════════════════════╗
+          ║  ⚠️  Security Warning: Refusing to start                      ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║                                                              ║
+          ║  Binding to 0.0.0.0 exposes Clacky to the public network.    ║
+          ║  You must set CLACKY_ACCESS_KEY before starting the server.  ║
+          ║                                                              ║
+          ║  Generate a secure key:                                      ║
+          ║    openssl rand -hex 32                                      ║
+          ║                                                              ║
+          ║  Then export it:                                             ║
+          ║    export CLACKY_ACCESS_KEY=<your-generated-key>             ║
+          ║                                                              ║
+          ╚══════════════════════════════════════════════════════════════╝
+        MSG
+        exit(1)
+      end
+      # ─────────────────────────────────────────────────────────────────────
+
       if ENV["CLACKY_WORKER"] == "1"
         # ── Worker mode ───────────────────────────────────────────────────────
         # Spawned by Master. Inherit the listen socket from the file descriptor

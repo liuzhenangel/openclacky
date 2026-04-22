@@ -180,6 +180,18 @@ module Clacky
         )
         @browser_manager = Clacky::BrowserManager.instance
         @skill_loader    = Clacky::SkillLoader.new(working_dir: nil, brand_config: Clacky::BrandConfig.load)
+        # Access key authentication:
+        # - localhost (127.0.0.1 / ::1) is always trusted; auth is skipped entirely.
+        # - Any other bind address requires CLACKY_ACCESS_KEY env var.
+        @localhost_only      = local_host?(@host)
+        @access_key          = @localhost_only ? nil : resolve_access_key
+        @auth_failures       = {}
+        @auth_failures_mutex = Mutex.new
+        if @localhost_only
+          Clacky::Logger.info("[HttpServer] Localhost mode — authentication disabled")
+        else
+          Clacky::Logger.info("[HttpServer] Public mode — access key authentication ENABLED")
+        end
       end
 
       def start
@@ -318,7 +330,8 @@ module Clacky
         path   = req.path
         method = req.request_method
 
-
+        # Access key guard (skip for WebSocket upgrades)
+        return unless check_access_key(req, res)
 
         # WebSocket upgrade — no timeout applied (long-lived connection)
         if websocket_upgrade?(req)
@@ -853,6 +866,103 @@ module Clacky
             broadcast_all(type: "upgrade_complete", success: false)
           end
         end
+      end
+
+      # Returns true when the bind host is loopback-only.
+      private def local_host?(host)
+        ["127.0.0.1", "::1", "localhost"].include?(host.to_s.strip)
+      end
+
+      # Resolve access key from CLACKY_ACCESS_KEY env var only.
+      private def resolve_access_key
+        key = ENV.fetch("CLACKY_ACCESS_KEY", "").strip
+        key.empty? ? nil : key
+      end
+
+      # Extract bearer token / query param / cookie from a WEBrick request.
+      # Priority: Authorization: Bearer > ?access_key= > Cookie clacky_access_key
+      private def extract_key(req)
+        auth = req["Authorization"].to_s.strip
+        if auth.start_with?("Bearer ")
+          token = auth.sub(/\ABearer\s+/i, "").strip
+          return token unless token.empty?
+        end
+
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        token = query["access_key"].to_s.strip
+        return token unless token.empty?
+
+        req.cookies.each do |c|
+          return c.value if c.name == "clacky_access_key" && !c.value.to_s.empty?
+        end
+
+        nil
+      end
+
+      # Constant-time string comparison to prevent timing attacks.
+      private def secure_compare(a, b)
+        return false unless a.bytesize == b.bytesize
+
+        result = 0
+        a.unpack("C*").zip(b.unpack("C*")) { |x, y| result |= x ^ y }
+        result.zero?
+      end
+
+      # Returns true if the request is authenticated or auth is disabled.
+      # Writes 401/429 to res and returns false on failure.
+      private def check_access_key(req, res)
+        # Localhost binding — always trusted, no auth needed.
+        return true if @localhost_only
+        return true unless @access_key   # public but no key configured (cli already blocked this)
+
+        ip        = req.peeraddr.last rescue "unknown"
+        candidate = extract_key(req)
+
+        # Lazily evict expired lockout entries to prevent unbounded memory growth.
+        @auth_failures_mutex.synchronize do
+          @auth_failures.delete_if { |_, e| Time.now >= e[:reset_at] }
+        end
+
+        # No key provided — reject immediately without counting as a failure.
+        if candidate.nil? || candidate.empty?
+          json_response(res, 401, {
+            error: "Unauthorized: access key required",
+            hint:  "Pass key via 'Authorization: Bearer <key>' header or '?access_key=<key>'"
+          })
+          return false
+        end
+
+        # Check if IP is currently locked out.
+        blocked, wait_secs = @auth_failures_mutex.synchronize do
+          entry = @auth_failures[ip]
+          if entry && entry[:count] >= 10 && Time.now < entry[:reset_at]
+            [true, (entry[:reset_at] - Time.now).ceil]
+          else
+            [false, 0]
+          end
+        end
+
+        if blocked
+          json_response(res, 429, { error: "Too many failed attempts", retry_after: wait_secs })
+          return false
+        end
+
+        if secure_compare(@access_key, candidate)
+          @auth_failures_mutex.synchronize { @auth_failures.delete(ip) }
+          return true
+        end
+
+        @auth_failures_mutex.synchronize do
+          entry = @auth_failures[ip] ||= { count: 0, reset_at: Time.now + 300 }
+          entry[:count] += 1
+          Clacky::Logger.warn("[Auth] Failed attempt #{entry[:count]}/10 from #{ip}")
+        end
+
+        json_response(res, 401, {
+          error: "Unauthorized: invalid access key",
+          hint:  "Pass key via 'Authorization: Bearer <key>' header or '?access_key=<key>'"
+        })
+        false
       end
 
       # Returns true when the configured gem source is the official RubyGems.org.
