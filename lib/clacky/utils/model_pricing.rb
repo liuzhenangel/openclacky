@@ -226,11 +226,11 @@ module Clacky
         # Support both dot and dash separators (e.g., "4.5", "4-5", "4-6")
         # Also handles Bedrock cross-region prefixes (e.g. "jp.anthropic.claude-sonnet-4-6")
         case model
-        when /claude.*opus.*4[.-]?[56]/i
+        when /claude.*opus.*4[.-]?[5-9]/i
           "claude-opus-4.5"
-        when /claude.*sonnet.*4[.-]?[56]/i
+        when /claude.*sonnet.*4[.-]?[5-9]/i
           "claude-sonnet-4.5"
-        when /claude.*haiku.*4[.-]?[56]/i
+        when /claude.*haiku.*4[.-]?[5-9]/i
           "claude-haiku-4.5"
         when /claude-3-5-sonnet-20241022/i
           "claude-3-5-sonnet-20241022"

@@ -100,8 +100,9 @@ module Clacky
       # Update session bar with current stats
       # @param tasks [Integer] Number of completed tasks (optional)
       # @param cost [Float] Total cost (optional)
+      # @param cost_source [Symbol, nil] :api / :price / :default (optional)
       # @param status [String] Workspace status ('idle' or 'working') (optional)
-      def update_sessionbar(tasks: nil, cost: nil, status: nil)
+      def update_sessionbar(tasks: nil, cost: nil, cost_source: nil, status: nil)
         @tasks_count = tasks if tasks
         @total_cost = cost if cost
         @input_area.update_sessionbar(
@@ -110,6 +111,7 @@ module Clacky
           model: @config[:model],
           tasks: @tasks_count,
           cost: @total_cost,
+          cost_source: cost_source,
           status: status
         )
         @layout.render_input

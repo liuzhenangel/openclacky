@@ -456,7 +456,7 @@ module Clacky
         # the real cumulative spend across all subagents
         subagent_cost = result[:total_cost_usd] || 0.0
         @total_cost += subagent_cost
-        @ui&.update_sessionbar(cost: @total_cost)
+        @ui&.update_sessionbar(cost: @total_cost, cost_source: @cost_source)
 
         # Log completion
         @ui&.show_info("Subagent completed: #{result[:iterations]} iterations, $#{subagent_cost.round(4)} (total: $#{@total_cost.round(4)})")
