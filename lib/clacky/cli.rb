@@ -663,6 +663,18 @@ module Clacky
 
         # Set up interrupt handler
         ui_controller.on_interrupt do |input_was_empty:|
+          # Priority 1: if idle compression work is actually in flight,
+          # Ctrl+C should stop compression — not exit the program. The
+          # compress thread rolls back history cleanly on AgentInterrupted.
+          if idle_timer.compressing?
+            idle_timer.cancel
+            ui_controller.show_progress(phase: "done")
+            ui_controller.set_idle_status
+            ui_controller.show_warning("Compression interrupted by user")
+            ui_controller.clear_input
+            next
+          end
+
           if (not current_task_thread&.alive?) && input_was_empty
             # Save final session state before exit
             if session_manager && agent.total_tasks > 0

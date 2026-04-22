@@ -84,6 +84,14 @@ module Clacky
       @mutex.synchronize { @timer_thread&.alive? || @compress_thread&.alive? }
     end
 
+    # True only when compression work is actually in flight (not during the
+    # pre-compression idle countdown). Used by callers that want to treat
+    # Ctrl+C during active compression as "stop compressing" rather than
+    # "exit the program".
+    def compressing?
+      @mutex.synchronize { @compress_thread&.alive? || false }
+    end
+
     private def run_compression
       success = @agent.trigger_idle_compression
 
