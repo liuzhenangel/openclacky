@@ -1359,144 +1359,36 @@ body {
 
 /* ── Chat panel ──────────────────────────────────────────────────────────── */
 #chat-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-#chat-header {
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-}
-/* Title block — stacks the name + subtitle vertically so the header has
-   two lines of information (like Linear / Arc) without growing wider. */
-#chat-title-block {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;           /* allow ellipsis inside */
-  flex: 1;
-  line-height: 1.25;
-  gap: 2px;
-}
-#chat-title {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-#chat-subtitle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  opacity: 0.75;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-#chat-subtitle .chat-sub-source {
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  flex-shrink: 0;
-}
-#chat-subtitle .chat-sub-dir {
-  font-family: var(--font-mono, monospace);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  opacity: 0.85;
-}
-#chat-subtitle .chat-sub-sep {
-  opacity: 0.35;
-  flex-shrink: 0;
-}
 
-/* Status badge styles - softed design */
-.status-idle,
-.status-running,
-.status-error {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: lowercase;
-}
-
-.status-idle {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-secondary);
-}
-
-[data-theme="light"] .status-idle {
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--color-text-secondary);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.status-running {
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--color-success);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-}
-
-[data-theme="light"] .status-running {
-  background: rgba(34, 197, 94, 0.08);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, 0.15);
-}
-
-.status-error {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--color-error);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-[data-theme="light"] .status-error {
-  background: rgba(239, 68, 68, 0.08);
-  color: #dc2626;
-  border: 1px solid rgba(239, 68, 68, 0.15);
-}
-
-/* Delete session button in chat header */
-/* Back button in chat header — hidden on desktop, shown on mobile via media query */
+/* Mobile-only floating back button — replaces the old in-header back button.
+   Hidden on desktop; mobile media query enables it. Positioned absolutely so
+   it doesn't take layout space or add visual chrome on desktop. */
 .chat-back-btn {
   display: none;
+}
+.chat-back-floating {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  background: transparent;
-  border: none;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-secondary);
   border-radius: 6px;
   color: var(--color-text-secondary);
   cursor: pointer;
   padding: 0;
-  flex-shrink: 0;
   transition: background .15s, color .15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
-.chat-back-btn:hover { background: var(--color-bg-hover); }
+.chat-back-floating:hover { background: var(--color-bg-hover); }
 
-.btn-delete-session {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  padding: 0;
-  transition: background .15s, color .15s;
-}
-.btn-delete-session:hover { background: var(--color-error-bg); color: var(--color-error); }
+/* Status badges (.status-idle/running/error) used to live in #chat-header.
+   That header has been removed; the bottom #session-info-bar uses its own
+   .sib-status-* classes instead. Legacy .status-* styles removed. */
 
 /* ── Messages ────────────────────────────────────────────────────────────── */
 #messages {
@@ -1506,6 +1398,61 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Empty-state hint: shown inside #messages when a session has no messages yet.
+   Designed to be quiet and low-contrast so it guides without distracting. */
+.chat-empty-hint {
+  margin: auto;                /* vertical + horizontal centering inside flex column */
+  max-width: 420px;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--color-text-secondary);
+  user-select: none;
+  pointer-events: none;        /* purely decorative — don't block clicks/scroll */
+  opacity: 0.85;
+}
+.chat-empty-hint .chat-empty-icon {
+  color: var(--color-text-tertiary);
+  margin-bottom: 14px;
+  opacity: 0.55;
+}
+.chat-empty-hint .chat-empty-title {
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.chat-empty-hint .chat-empty-subtitle {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  margin-bottom: 18px;
+  opacity: 0.85;
+}
+.chat-empty-hint .chat-empty-tips {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+.chat-empty-hint .chat-empty-tips li {
+  position: relative;
+  padding-left: 14px;
+  line-height: 1.5;
+}
+.chat-empty-hint .chat-empty-tips li::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  top: -1px;
+  opacity: 0.6;
 }
 
 /* New message notification banner */
@@ -5970,31 +5917,6 @@ body.setup-mode[data-theme="dark"] {
     padding: 0 12px;
   }
 
-  /* Chat sub-header: tighten padding */
-  #chat-header {
-    padding: 8px 12px;
-    gap: 8px;
-  }
-
-  /* Truncate long session titles */
-  #chat-title {
-    font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    flex: 1;
-  }
-
-  /* Status badge: smaller on mobile */
-  .status-idle,
-  .status-running,
-  .status-error {
-    font-size: 10px;
-    padding: 1px 6px;
-    flex-shrink: 0;
-  }
-
   /* Session info bar: single-line, no hover-expand, font smaller */
   #session-info-bar {
     padding: 3px 12px;
@@ -6049,6 +5971,10 @@ body.setup-mode[data-theme="dark"] {
   /* Back button: only visible on mobile when inside a session */
   .chat-back-btn {
     display: flex;
+  }
+  /* Reserve top space in messages so floating back button doesn't overlap content */
+  #chat-panel #messages {
+    padding-top: 52px;
   }
 
   /* Welcome page: vertically centered but shifted up, add horizontal padding */
