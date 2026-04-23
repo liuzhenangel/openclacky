@@ -68,15 +68,27 @@ module Clacky
         all_skills = all_skills.reject(&:invalid?)
         auto_invocable = all_skills.select(&:model_invocation_allowed?)
 
-        # Enforce system prompt injection limit to control token usage
+        # Enforce system prompt injection limit to control token usage.
+        # Warn only when the set of dropped skills *changes* — this message
+        # is otherwise emitted once per agent turn (build_skill_context is
+        # called during every system prompt assembly) and floods the log.
         if auto_invocable.size > MAX_CONTEXT_SKILLS
-          dropped = auto_invocable.size - MAX_CONTEXT_SKILLS
-          Clacky::Logger.warn(
-            "Skill context limit: #{auto_invocable.size} auto-invocable skills found, " \
-            "only injecting first #{MAX_CONTEXT_SKILLS} (#{dropped} dropped). " \
-            "Remove unused skills to restore full visibility."
-          )
-          auto_invocable = auto_invocable.first(MAX_CONTEXT_SKILLS)
+          kept    = auto_invocable.first(MAX_CONTEXT_SKILLS)
+          dropped = auto_invocable.drop(MAX_CONTEXT_SKILLS)
+          dropped_names = dropped.map(&:identifier)
+          signature = dropped_names.sort.join(",")
+
+          if @skill_limit_warned_signature != signature
+            @skill_limit_warned_signature = signature
+            Clacky::Logger.warn(
+              "Skill context limit: #{auto_invocable.size} auto-invocable skills found, " \
+              "only injecting first #{MAX_CONTEXT_SKILLS} " \
+              "(#{dropped.size} dropped — will NOT be auto-discovered by the agent: " \
+              "#{dropped_names.join(", ")}). " \
+              "Remove unused skills to restore full visibility."
+            )
+          end
+          auto_invocable = kept
         end
 
         return "" if auto_invocable.empty?
