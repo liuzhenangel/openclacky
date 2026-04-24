@@ -105,6 +105,42 @@ module Clacky
         }
       },
 
+      # DeepSeek V4 models
+      # Source: https://api-docs.deepseek.com/quick_start/pricing (USD / 1M tokens)
+      # DeepSeek billing model:
+      #   - "cache miss input" = regular prompt_tokens rate
+      #   - "cache hit input"  = cache_read rate (DeepSeek has no separate cache-write charge)
+      #   - No tiered pricing (single rate regardless of context length)
+      "deepseek-v4-flash" => {
+        input: {
+          default: 0.14,                  # $0.14/MTok cache miss
+          over_200k: 0.14                 # no tiered pricing
+        },
+        output: {
+          default: 0.28,                  # $0.28/MTok
+          over_200k: 0.28
+        },
+        cache: {
+          write: 0.14,                    # DeepSeek doesn't charge extra for writes; bill at miss rate
+          read: 0.028                     # $0.028/MTok cache hit
+        }
+      },
+
+      "deepseek-v4-pro" => {
+        input: {
+          default: 1.74,                  # $1.74/MTok cache miss
+          over_200k: 1.74
+        },
+        output: {
+          default: 3.48,                  # $3.48/MTok
+          over_200k: 3.48
+        },
+        cache: {
+          write: 1.74,                    # no separate write charge; bill at miss rate
+          read: 0.145                     # $0.145/MTok cache hit
+        }
+      },
+
       # Default fallback pricing (conservative estimates)
       "default" => {
         input: {
@@ -238,6 +274,15 @@ module Clacky
           "claude-3-5-sonnet-20240620"
         when /claude-3-5-haiku-20241022/i
           "claude-3-5-haiku-20241022"
+        when /deepseek-v4-pro/i, /deepseek.*v4.*pro/i
+          "deepseek-v4-pro"
+        when /deepseek-v4-flash/i, /deepseek.*v4.*flash/i
+          "deepseek-v4-flash"
+        # Legacy aliases: deepseek-chat and deepseek-reasoner are being
+        # deprecated on 2026-07-24 and map to deepseek-v4-flash's
+        # non-thinking / thinking modes respectively. Bill at flash rates.
+        when /^deepseek-chat$/i, /^deepseek-reasoner$/i
+          "deepseek-v4-flash"
         else
           "default"
         end

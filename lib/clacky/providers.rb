@@ -41,6 +41,27 @@ module Clacky
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
+      "deepseekv4" => {
+        "name" => "DeepSeek V4",
+        # DeepSeek API is compatible with both OpenAI and Anthropic formats.
+        # We use the OpenAI-compatible endpoint here (matches kimi/minimax/glm style).
+        # For Anthropic-format usage, point base_url at https://api.deepseek.com/anthropic
+        # and change "api" to "anthropic-messages".
+        "base_url" => "https://api.deepseek.com",
+        "api" => "openai-completions",
+        "default_model" => "deepseek-v4-pro",
+        # Note: deepseek-chat and deepseek-reasoner are legacy aliases being
+        # deprecated on 2026-07-24; they map to deepseek-v4-flash's non-thinking
+        # and thinking modes respectively. Prefer deepseek-v4-flash / deepseek-v4-pro.
+        "models" => [
+          "deepseek-v4-flash",
+          "deepseek-v4-pro",
+          "deepseek-chat",
+          "deepseek-reasoner"
+        ],
+        "website_url" => "https://platform.deepseek.com/api_keys"
+      }.freeze,
+
       "minimax" => {
         "name" => "Minimax",
         "base_url" => "https://api.minimaxi.com/v1",

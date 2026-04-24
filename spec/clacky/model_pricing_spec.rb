@@ -145,6 +145,52 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
     
+    context "with DeepSeek V4 models" do
+      it "calculates deepseek-v4-flash basic cost" do
+        usage = {
+          prompt_tokens: 100_000,         # 100K tokens
+          completion_tokens: 50_000        # 50K tokens
+        }
+
+        # Input: (100,000 / 1,000,000) * $0.14 = $0.014
+        # Output: (50,000 / 1,000,000) * $0.28 = $0.014
+        # Total: $0.028
+        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(0.028)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "calculates deepseek-v4-pro with cache read (cache hit billing)" do
+        usage = {
+          prompt_tokens: 100_000,          # includes cache reads per OpenAI-style counting
+          completion_tokens: 50_000,
+          cache_read_input_tokens: 30_000  # cache hit portion
+        }
+
+        # Regular input (non-cached): ((100_000 - 30_000) / 1_000_000) * $1.74 = $0.1218
+        # Output:                     (50_000 / 1_000_000)             * $3.48 = $0.174
+        # Cache read:                 (30_000 / 1_000_000)             * $0.145 = $0.00435
+        # Total: $0.30015
+        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(0.30015)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "maps legacy deepseek-chat alias to flash pricing" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        result = described_class.calculate_cost(model: "deepseek-chat", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(0.028)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "maps legacy deepseek-reasoner alias to flash pricing" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        result = described_class.calculate_cost(model: "deepseek-reasoner", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(0.028)
+        expect(result[:source]).to eq(:price)
+      end
+    end
+
     context "with Claude 3.5 models" do
       it "supports claude-3-5-sonnet-20241022" do
         usage = {
